@@ -13,8 +13,6 @@ use serde::{Deserialize, Serialize};
 use crate::error::{Error, Result};
 use crate::paths;
 
-const SELECTION_FILE: &str = "projects.json";
-
 /// Serialize every read-modify-write against the process-wide project registry.
 ///
 /// The application deliberately supports multiple windows, and each window can

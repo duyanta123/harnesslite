@@ -1,11 +1,20 @@
 //! HarnessLite shell layer.
 //!
-//! Phase 0 baseline: a single instance guard and an empty window. The thin
-//! command layer, event channels, tray and bridge letterbox land in Phase 3;
-//! every Tauri command stays glue-only (≤30 lines, no domain logic) — domain
-//! logic lives in `hd-core`, process lifecycle in `hd-runtime`.
+//! Phase 3 baseline: single instance, one supervisor, the harness command
+//! surface and the desktop bridge commands. Every Tauri command is glue only
+//! (parameter conversion + one call into hd-core/hd-runtime + event reporting)
+//! — domain logic lives in `hd-core`, process lifecycle in `hd-runtime`.
+
+mod commands;
+mod runtime_env;
+mod state;
+
+use std::sync::Arc;
 
 use tauri::Manager;
+
+use hd_runtime::harness::supervisor::Supervisor;
+use state::AppState;
 
 /// One instance of HarnessLite per user session: a second launch must focus
 /// the existing window rather than start a second supervisor against the same
@@ -23,6 +32,30 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _arguments, _cwd| {
             focus_existing_window(app)
         }))
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .setup(|app| {
+            let supervisor = Supervisor::new().expect("supervisor");
+            commands::relay_supervisor_events(app.handle().clone(), Arc::clone(&supervisor));
+            app.manage(AppState::new(supervisor));
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::harness_status,
+            commands::harness_log,
+            commands::harness_environment,
+            commands::harness_start,
+            commands::harness_stop,
+            commands::harness_install,
+            commands::desktop_offer,
+            commands::desktop_notify,
+            commands::desktop_attention,
+            commands::desktop_badge,
+            commands::renderer_ready,
+        ])
         .run(tauri::generate_context!())
         .expect("HarnessLite failed to start");
 }
