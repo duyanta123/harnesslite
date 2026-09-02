@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+
+.pnpm-store/
+.pnpm-debug.log*
+
+src-tauri/target/
+src-tauri/gen/schemas/
+runtime-cache/
+src-tauri/resources/
+
+*.log
+.DS_Store
+Thumbs.db

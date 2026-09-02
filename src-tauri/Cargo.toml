@@ -1,0 +1,90 @@
+[workspace]
+members = [
+    ".",
+    "crates/hd-core",
+    "crates/hd-runtime",
+    "crates/proc-guard",
+    "crates/node-runtime",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/duyanta123/harnesslite"
+
+[workspace.dependencies]
+hd-core = { path = "crates/hd-core" }
+hd-runtime = { path = "crates/hd-runtime" }
+proc-guard = { path = "crates/proc-guard" }
+node-runtime = { path = "crates/node-runtime" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+tokio = { version = "1", features = ["full", "parking_lot"] }
+url = "2"
+dirs = "6"
+
+[package]
+name = "harnesslite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "HarnessLite is a native desktop shell for DeepSeek Harness"
+
+[lib]
+name = "harnesslite_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "harnesslite"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+hd-core.workspace = true
+hd-runtime.workspace = true
+proc-guard.workspace = true
+node-runtime.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+url.workspace = true
+dirs.workspace = true
+semver = "1"
+regex = "1"
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-process = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = "s"
+panic = "unwind"
+strip = "symbols"
+incremental = false
+debug = false
+overflow-checks = false
+
+[profile.release.package."*"]
+opt-level = "s"
+codegen-units = 1
+
+[profile.release.build-override]
+opt-level = 0
+codegen-units = 256

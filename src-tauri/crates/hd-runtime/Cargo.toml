@@ -1,0 +1,16 @@
+[package]
+name = "hd-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "HarnessLite runtime layer: Node and DSH process lifecycle"
+
+[dependencies]
+hd-core.workspace = true
+proc-guard.workspace = true
+node-runtime.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true

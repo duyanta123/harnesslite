@@ -1,0 +1,626 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens.
+ *
+ * `@theme` emits these as custom properties on `:root`, and the utilities
+ * compile to `var(--color-…)`. That means a later rule can re-point a token and
+ * every utility follows — which is how the light theme below works without a
+ * second set of class names.
+ *
+ * The defaults are the dark values, because the dark surface is the one the app
+ * is designed around.
+ */
+@theme {
+  /* Four grounds, back to front: the chrome a window wears (`surface`), the
+     content area it frames (`canvas`), the deepest pane inside that (`deep`),
+     and the raised state of a control (`surface-2`).
+   *
+   * Near-neutral on purpose. Saturated chrome is most of what makes a desktop
+   * app read as a web page wearing a title bar; the colour budget is spent on
+   * the one accent and on status, where it carries meaning. */
+  --color-canvas: #0a0e16;
+  --color-canvas-deep: #06080e;
+  --color-surface: #131826;
+  --color-surface-2: #1d2534;
+  --color-line: #ffffff17;
+  --color-line-strong: #ffffff2e;
+
+  --color-text: #e8ecf4;
+  --color-muted: #9aa3b6;
+  --color-faint: #6c7589;
+
+  --color-brand: #6e9bff;
+  --color-brand-cyan: #7ff3ff;
+  --color-brand-violet: #a98cff;
+  --color-ok: #46d9a2;
+  --color-warn: #ffc46b;
+  --color-danger: #ff7a8a;
+
+  /* The ink a filled accent carries. Its own token because the answer flips
+     with the palette: an accent light enough to read against a dark window
+     needs dark ink, and the darker accent the light window needs takes light
+     ink — so a hard-coded value is legible in exactly one of the two. */
+  --color-on-brand: #07101f;
+  --color-on-danger: #2b0a11;
+
+  --font-sans:
+    'Inter var', -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', system-ui,
+    'PingFang SC', 'Microsoft YaHei UI', 'Noto Sans SC', sans-serif;
+  --font-mono:
+    'Cascadia Code', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* A window corner is 8px, so nothing framed by one has any business being
+     rounder than that. Controls sit a step tighter again. */
+  --radius-panel: 0.5rem;
+  --radius-control: 0.3125rem;
+
+  --shadow-panel: 0 1px 2px #00000052;
+  --shadow-lift: 0 14px 36px -14px #000000b8;
+
+  /* The accent as a fill rather than a colour: two stops of the app's own hues,
+     so a progress bar or a lead figure can carry the palette without a new
+     colour being invented for it. */
+  --gradient-accent: linear-gradient(
+    135deg,
+    var(--color-brand) 0%,
+    var(--color-brand-violet) 100%
+  );
+
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Short enough to read as the view settling rather than as an entrance. */
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 4px, 0);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  --animate-rise: rise 0.22s var(--ease-out-soft) both;
+
+  /* A dialog arrives from slightly behind the glass. Faster than the panes,
+     because it is answering a click that has already happened. */
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 6px, 0) scale(0.975);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* A bar with no percentage behind it. Slow and shallow: a fast sweep over a
+     step that takes ten seconds reads as impatience rather than as work. The
+     travel assumes the moving element is a quarter of its track, which is what
+     carries it exactly edge to edge. */
+  @keyframes drift {
+    from {
+      transform: translate3d(-100%, 0, 0);
+    }
+    to {
+      transform: translate3d(300%, 0, 0);
+    }
+  }
+
+  --animate-pop: pop 0.16s var(--ease-out-soft) both;
+  --animate-fade: fade 0.14s linear both;
+  --animate-drift: drift 1.4s ease-in-out infinite;
+
+  /* A wizard's step change: the panel arrives from the side the user is moving
+     towards — from the right when going forward, from the left when going
+     back — so the motion itself says which direction the walk went. */
+  @keyframes slide-forward {
+    from {
+      opacity: 0;
+      transform: translate3d(16px, 0, 0);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes slide-back {
+    from {
+      opacity: 0;
+      transform: translate3d(-16px, 0, 0);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  --animate-slide-forward: slide-forward 0.2s var(--ease-out-soft) both;
+  --animate-slide-back: slide-back 0.2s var(--ease-out-soft) both;
+
+  /* A stroke that draws itself in, for the check and cross inside a status
+     ring: the mark arrives as a motion rather than as a swap. Pairs with
+     `pathLength="1"`, so the dash units are the stroke itself. */
+  @keyframes draw {
+    from {
+      stroke-dashoffset: 1;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+
+  --animate-draw: draw 0.24s var(--ease-out-soft) 0.05s both;
+}
+
+/*
+ * The terminal's sixteen colours.
+ *
+ * Not in `@theme` and not utilities, because no rule in this stylesheet paints
+ * with them: the only consumer is `lib/screen.ts`, which hands them to xterm as
+ * a theme object. They are here rather than as a constant in that file for one
+ * reason — read from the cascade, the answer is automatically right in all three
+ * of this window's states, and the terminal follows the light switch without any
+ * code deciding which palette is in force.
+ *
+ * Chosen to be the app's own accents where an ANSI slot has an obvious
+ * counterpart, so a green from `npm` and a green from the status dot are the same
+ * green. The rest are picked to stay apart from each other and legible on the
+ * pane's ground, which is what a terminal palette is actually for. `white` and
+ * `bright-white` invert between the themes: a program that prints white text is
+ * assuming a dark terminal, and on a light one that assumption has to be read as
+ * "the strong foreground" rather than obeyed literally.
+ *
+ * Specificity, not order, is what makes the two light blocks below win: a bare
+ * `:root` scores under both of them wherever it sits in the file.
+ */
+:root {
+  --term-black: #2b3244;
+  --term-red: #ff7a8a;
+  --term-green: #46d9a2;
+  --term-yellow: #ffc46b;
+  --term-blue: #6e9bff;
+  --term-magenta: #a98cff;
+  --term-cyan: #5fd8e8;
+  --term-white: #c3cad9;
+  --term-bright-black: #59617a;
+  --term-bright-red: #ff9fac;
+  --term-bright-green: #6fe7bd;
+  --term-bright-yellow: #ffd694;
+  --term-bright-blue: #93b4ff;
+  --term-bright-magenta: #c4aeff;
+  --term-bright-cyan: #7ff3ff;
+  --term-bright-white: #f2f4f9;
+  --term-selection: #6e9bff4d;
+}
+
+/*
+ * The light palette, selected two ways.
+ *
+ * The system preference is one of them, and it has to stay a real one: a window
+ * that stopped following a machine set to turn light in the morning would have
+ * taken that decision away from its owner. The other is the switch in the title
+ * bar, which writes `data-theme` — and `:not([data-theme='dark'])` is what makes
+ * the switch beat the preference rather than tie with it.
+ *
+ * Written out twice because CSS has no way to say "this block, under a media
+ * query *or* under an attribute", and every alternative — `light-dark()`, an
+ * inline script resolving the preference before first paint — costs either a
+ * webview this ships on or the app's own content security policy. The two blocks
+ * are adjacent so that editing one and not the other is hard to do by accident.
+ */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --color-canvas: #f4f6fb;
+    --color-canvas-deep: #e8ecf4;
+    --color-surface: #ffffff;
+    --color-surface-2: #edf0f7;
+    --color-line: #0d132b1f;
+    --color-line-strong: #0d132b36;
+
+    --color-text: #101623;
+    --color-muted: #4c5468;
+    --color-faint: #7b8398;
+
+    --color-brand: #3560e8;
+    --color-brand-cyan: #1189a2;
+    --color-brand-violet: #6b46df;
+    --color-ok: #0e9e74;
+    --color-warn: #8f5f08;
+    --color-danger: #c62d46;
+
+    --color-on-brand: #ffffff;
+    --color-on-danger: #ffffff;
+
+    --shadow-panel: 0 1px 2px #1b234a1f;
+    --shadow-lift: 0 6px 16px -8px #1b234a3d;
+
+    --term-black: #1b2231;
+    --term-red: #c62d46;
+    --term-green: #0e7f5f;
+    --term-yellow: #8a5c07;
+    --term-blue: #3560e8;
+    --term-magenta: #6b46df;
+    --term-cyan: #11788f;
+    --term-white: #5c6479;
+    --term-bright-black: #7b8398;
+    --term-bright-red: #9c1f34;
+    --term-bright-green: #0a6349;
+    --term-bright-yellow: #6d4805;
+    --term-bright-blue: #2446bd;
+    --term-bright-magenta: #5533b4;
+    --term-bright-cyan: #0c5d70;
+    --term-bright-white: #2a3243;
+    --term-selection: #3560e83d;
+  }
+}
+
+:root[data-theme='light'] {
+  --color-canvas: #f6f7fa;
+  --color-canvas-deep: #eceef4;
+  --color-surface: #ffffff;
+  --color-surface-2: #eef0f6;
+  --color-line: #0d132b1f;
+  --color-line-strong: #0d132b36;
+
+  --color-text: #101623;
+  --color-muted: #4c5468;
+  --color-faint: #7b8398;
+
+  --color-brand: #3560e8;
+  --color-brand-cyan: #1189a2;
+  --color-brand-violet: #6b46df;
+  --color-ok: #0e9e74;
+  --color-warn: #8f5f08;
+  --color-danger: #c62d46;
+
+  --color-on-brand: #ffffff;
+  --color-on-danger: #ffffff;
+
+  --shadow-panel: 0 1px 2px #1b234a1f;
+  --shadow-lift: 0 6px 16px -8px #1b234a3d;
+
+  --term-black: #1b2231;
+  --term-red: #c62d46;
+  --term-green: #0e7f5f;
+  --term-yellow: #8a5c07;
+  --term-blue: #3560e8;
+  --term-magenta: #6b46df;
+  --term-cyan: #11788f;
+  --term-white: #5c6479;
+  --term-bright-black: #7b8398;
+  --term-bright-red: #9c1f34;
+  --term-bright-green: #0a6349;
+  --term-bright-yellow: #6d4805;
+  --term-bright-blue: #2446bd;
+  --term-bright-magenta: #5533b4;
+  --term-bright-cyan: #0c5d70;
+  --term-bright-white: #2a3243;
+  --term-selection: #3560e83d;
+}
+
+/*
+ * The window's two grounds.
+ *
+ * Their own tokens rather than the colours they default to, because a backdrop
+ * turns a ground translucent and this window has grounds that must never be:
+ * `--color-surface` also paints menus, dialogs and cards, and glass under a
+ * dialog is text over text. Only these two ever become see-through, and only
+ * where the compositor is drawing something behind them.
+ *
+ * `data-material` is written by `state/theme.ts` from whatever `material.rs`
+ * managed to apply — never from what the platform ought to support. So the
+ * opaque defaults below are what a Windows 10 build too old for acrylic gets, and
+ * a Linux desktop, and the browser-hosted capture harness in `media/`.
+ */
+:root {
+  --ground-window: var(--color-canvas);
+  --ground-chrome: var(--color-surface);
+}
+
+:root[data-material] {
+  /* Nothing: the material *is* this window's ground, and a tint over it would
+     only be a worse version of it. What shows through here is the gap between
+     one piece of chrome and the next — every pane inside paints its own opaque
+     ground, so no text is ever read off glass. */
+  --ground-window: transparent;
+
+  /* The strips do keep a tint, because they are the chrome the material shows
+     through and they carry 11px text. At this much surface the desktop's hue
+     reaches the window, and a status line still clears 5:1 against the brightest
+     backdrop the compositor will hand it. */
+  --ground-chrome: color-mix(in oklab, var(--color-surface) 46%, transparent);
+}
+
+/* macOS Vibrancy samples the desktop behind a transparent window. In dark
+   appearance that sample can be a light wallpaper or a gray inactive-window
+   tint, which is exactly the combination that produced black text on gray
+   cards. Keep the compositor effect in the title/chrome layer, but make the
+   content grounds opaque whenever dark appearance is active. */
+:root[data-material='vibrancy'][data-theme='dark'] {
+  --ground-window: var(--color-canvas);
+  --ground-chrome: var(--color-surface);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-material='vibrancy']:not([data-theme='light']) {
+    --ground-window: var(--color-canvas);
+    --ground-chrome: var(--color-surface);
+  }
+}
+
+@layer base {
+  /* Dark first, so a machine with no stated preference gets the surface this
+     app was designed around. The two pins below are what keep the furniture the
+     webview still draws itself — scrollbars, the caret, a native control —
+     agreeing with the palette above. */
+  html {
+    color-scheme: dark light;
+  }
+
+  :root[data-theme='dark'] {
+    color-scheme: dark;
+  }
+
+  :root[data-theme='light'] {
+    color-scheme: light;
+  }
+
+  body {
+    background-color: var(--ground-window);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv05', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* Desktop chrome does not select on drag; text that should still be
+       selectable opts back in with `.selectable`. */
+    user-select: none;
+    -webkit-user-select: none;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  .selectable {
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+  }
+
+  /* The browser's own selection is a saturated blue that belongs to no palette
+     here, and it is the one colour a user sees that the app did not choose. */
+  ::selection {
+    background-color: color-mix(in oklab, var(--color-brand) 34%, transparent);
+    color: var(--color-text);
+  }
+
+  /* What a search matched, quoted back inside a line of its own text. The
+     browser's default is a flat yellow that belongs to no palette here, and it
+     is unreadable on the dark ground; this is the selection colour one step
+     quieter, so a line with several hits still reads as a sentence. */
+  mark {
+    background-color: color-mix(in oklab, var(--color-brand) 26%, transparent);
+    color: var(--color-text);
+    border-radius: 2px;
+    padding: 0 1px;
+  }
+
+  /* A drag that started on a control and ended somewhere else is not a
+     gesture — it is a slip, and a webview answers it by dragging the element.
+     Text opts back in through `.selectable`, which is also what may be dragged. */
+  img,
+  svg,
+  button {
+    -webkit-user-drag: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Tailwind's preflight leaves every button on the browser's arrow, so nothing
+     this app draws answers the pointer. Menu items are excluded on purpose: a
+     system menu keeps the arrow over its rows, and so does this one. The window
+     buttons and the drag strip opt back out the same way, further down. */
+  button:not([role='menuitem']),
+  [role='button'],
+  [role='switch'],
+  [role='tab'],
+  summary,
+  label[for],
+  a[href] {
+    cursor: pointer;
+  }
+
+  /* A control that cannot be pressed says so under the pointer. This works only
+     while the element is still hit-testable, which is why the controls opt out
+     of `pointer-events: none` and gate their hover on `enabled:` instead. */
+  :disabled,
+  [aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+
+  /* A search field in a webview comes with the browser's own clear button and
+     magnifier: grey, undersized, drawn by Edge, and the only control in the
+     window this app did not draw. The field keeps its type — it is a search
+     field, and the assistive technologies should be told so — and loses the
+     furniture. */
+  input[type='search']::-webkit-search-cancel-button,
+  input[type='search']::-webkit-search-decoration,
+  input[type='search']::-webkit-search-results-button {
+    display: none;
+  }
+
+  /* Thin, unobtrusive, and always the same width — a scrollbar that grows on
+     hover reflows the text beside it, which is exactly what a log pane must
+     not do while someone is reading an error in it. */
+  ::-webkit-scrollbar {
+    width: 11px;
+    height: 11px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-faint);
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+@layer components {
+  /* Tauri starts a window drag from any element carrying
+     `data-tauri-drag-region`, and it matches on the event target — so the
+     cursor has to say "grab the window" only on the parts that really do. */
+  [data-tauri-drag-region] {
+    cursor: default;
+  }
+
+  /* A hairline that reads as a bevel rather than a border. */
+  .hairline {
+    box-shadow: 0 0 0 1px var(--color-line);
+  }
+
+  /* Every strip and rail this window wears: the title bar, the status bar, the
+     nav rail, a pane's header, the console's sidebar. All of it is chrome, so all
+     of it sits a shade above the content it frames and is separated from it by a
+     line rather than by a gap — and all of it is where a backdrop material shows
+     through, which is why the colour comes from `--ground-chrome` and not
+     straight from the surface token. */
+  .chrome {
+    background-color: var(--ground-chrome);
+  }
+
+  /* Section captions in the panel — the small tracked-out label a desktop tool
+     puts above a group of settings. */
+  .caption {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+  }
+
+  /* A control raised out of a recessed track: the highlight catches its top
+     edge and the panel shadow seats it, which is what a thumb or an active
+     segment needs to read as graspable rather than as printed on. */
+  .raised {
+    box-shadow:
+      inset 0 1px 0 #ffffff0d,
+      var(--shadow-panel);
+  }
+
+  /* The top edge a floating panel catches: one bright hairline just inside the
+     border, which is what makes a dialog read as sitting in front of the
+     window rather than as painted onto it. Invisible — and harmlessly so — on
+     the light surface, where the border already does that work. */
+  .lift-top {
+    position: relative;
+  }
+  .lift-top::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    border-radius: inherit;
+    background: #ffffff14;
+  }
+}
+
+/* The terminal, fitted to this window.
+   Outside every layer on purpose: xterm ships its own stylesheet, and that one
+   is in no layer either — so a correction to it has to be unlayered as well, or
+   the cascade hands the round to the library no matter how specific we get. */
+
+/* Room around the terminal's text.
+   Set on xterm's own element rather than on the box we put it in, because the
+   fitter reads the padding from exactly here when it works out how many rows and
+   columns fit — and because the scrollbar is positioned against this element's
+   padding box, so it still hugs the pane's edge instead of floating a few pixels
+   inside it. */
+.xterm {
+  padding: 6px 4px 6px 10px;
+  width: 100%;
+  height: 100%;
+}
+
+/* The ground the terminal scrolls over.
+   xterm hard-codes black here, for a macOS scrollbar reason its own stylesheet
+   explains, and the element it themes to match the palette sits underneath this
+   one — so a light theme would show a black pane with dark text floating in it.
+   Qualified with `:root` only to outweigh the library's two-class selector. */
+:root .xterm .xterm-viewport {
+  background-color: var(--color-canvas-deep);
+  /* macOS hides overlay scrollbars until a trackpad gesture. Keeping a real
+     scroll lane makes the retained 5,000-line transcript discoverable with a
+     mouse as well as with Shift+PageUp. */
+  overflow-y: scroll !important;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Windows High Contrast and equivalent forced-colour modes discard most of the
+   palette. Restore the boundaries and status meaning that colour mixing alone
+   cannot carry once the operating system becomes the colour authority. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline-color: Highlight;
+  }
+
+  button,
+  input,
+  select,
+  textarea,
+  [role='button'],
+  [role='switch'],
+  [role='tab'],
+  [role='dialog'],
+  [role='alertdialog'] {
+    border: 1px solid ButtonText;
+    forced-color-adjust: auto;
+  }
+
+  [aria-current='true'],
+  [aria-selected='true'],
+  [aria-checked='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  :disabled,
+  [aria-disabled='true'] {
+    color: GrayText;
+  }
+}
