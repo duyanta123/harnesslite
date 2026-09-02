@@ -55,7 +55,11 @@ pub async fn harness_start(state: State<'_, AppState>) -> Result<String> {
 /// Kept separate from the Tauri wrapper because the tray owns the same action
 /// and must not bypass preflight or race an install.
 pub(crate) async fn start_managed(state: &AppState) -> Result<String> {
-    let mut plan = runtime_env::launch_plan()?;
+    // The `--patch` seam must resolve from the profile directory before the
+    // launcher composes; an install that predates the shared fallback (or a
+    // `$DSH_HOME` restored from elsewhere) is repaired here, idempotently.
+    hd_runtime::harness::install::sync_integration_shared_fallback()?;
+    let plan = runtime_env::launch_plan()?;
     // Compose the exact profile once through the launcher itself; a conflict
     // between patch layers is repaired here, before startup log noise.
     for notice in hd_runtime::composition::preflight(&plan).await? {
@@ -80,7 +84,7 @@ pub(crate) async fn start_managed(state: &AppState) -> Result<String> {
                     "profile {attempted} failed startup; automatically retrying last-known-good profile {recovered}"
                 ),
             );
-            let mut fallback = runtime_env::launch_plan()?;
+            let fallback = runtime_env::launch_plan()?;
             for notice in hd_runtime::composition::preflight(&fallback).await? {
                 state.supervisor.note(Stream::Stderr, notice);
             }
@@ -135,8 +139,18 @@ async fn perform_install(state: &AppState) -> Result<()> {
     state.supervisor.stop().await;
     state.supervisor.wait_until_inactive().await?;
 
-    // TODO(phase-2): when the selected Node has no npm, provision the managed
-    // runtime first (hd-runtime/src/node) instead of refusing.
+    // Installing needs a Node that carries npm. When nothing on this machine
+    // qualifies, the managed store is provisioned first — the download the
+    // Environment panel drives explicitly is the same path taken silently here.
+    let environment = runtime_env::environment();
+    let usable = environment
+        .all_node_runtimes
+        .iter()
+        .any(|install| install.version >= node_runtime::MINIMUM_SUPPORTED && install::npm_cli(&install.path).is_some());
+    if !usable {
+        provision_managed(state).await?;
+    }
+
     let plan = runtime_env::install_plan()?;
     let supervisor = Arc::clone(&state.supervisor);
     supervisor.note(
@@ -156,6 +170,56 @@ async fn perform_install(state: &AppState) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+/// Download the newest supported Node LTS into the managed store.
+///
+/// The shell's own runtime store is scanned by the same detector that finds
+/// nvm/fnm/volta installs, so a runtime provisioned here needs no selection
+/// step afterwards — it simply shows up as the machine's best available Node.
+#[tauri::command]
+pub async fn node_provision(state: State<'_, AppState>) -> Result<String> {
+    if state.provisioning.swap(true, Ordering::SeqCst) {
+        return Err(Error::Node("a Node download is already running".into()));
+    }
+    let outcome = provision_managed(&state).await;
+    state.provisioning.store(false, Ordering::SeqCst);
+    outcome.map(|path| path.to_string_lossy().into_owned())
+}
+
+async fn provision_managed(state: &AppState) -> Result<std::path::PathBuf> {
+    // npm installs and runtime downloads both write under the managed tree;
+    // serialising them keeps a promote from racing a partially-written store.
+    if state.installing.load(Ordering::SeqCst) {
+        return Err(Error::Node(
+            "the Harness is being installed; Node download postponed".into(),
+        ));
+    }
+
+    let runtimes = hd_core::paths::managed_node_dir();
+    let reporter = Arc::clone(&state.supervisor);
+    let mut last_note = std::time::Instant::now() - std::time::Duration::from_secs(1);
+    let path = hd_runtime::node::install_newest_lts(&runtimes, move |received, total| {
+        // Byte ticks arrive every chunk; the log only wants a heartbeat.
+        if last_note.elapsed() >= std::time::Duration::from_secs(1) {
+            last_note = std::time::Instant::now();
+            let line = match total {
+                Some(total) => format!(
+                    "downloading Node: {} / {} MiB",
+                    received / 1_048_576,
+                    total / 1_048_576
+                ),
+                None => format!("downloading Node: {} MiB", received / 1_048_576),
+            };
+            reporter.note(Stream::Stdout, line);
+        }
+    })
+    .await?;
+
+    state
+        .supervisor
+        .note(Stream::Stdout, format!("Node installed at {}", path.display()));
+    Ok(path)
 }
 
 /* -------------------------------------------------------------------------- */
@@ -178,7 +242,7 @@ pub struct DesktopOffer {
 /// Describe the desktop, and take any link that was waiting for a listener.
 #[tauri::command]
 pub fn desktop_offer(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
 ) -> DesktopOffer {
     DesktopOffer {
@@ -247,4 +311,38 @@ pub fn relay_supervisor_events(app: AppHandle, supervisor: Arc<Supervisor>) {
             let _ = Emitter::emit(&app, contract::EVENT_HARNESS, &event);
         }
     });
+}
+
+#[cfg(test)]
+mod smoke {
+    use super::*;
+
+    /// The whole chain against the real machine: install the locked Harness
+    /// release (provisioning a Node first if none qualifies), start it through
+    /// the managed lifecycle gate, and stop it again.
+    ///
+    /// Ignored because it spends real network and real minutes on npm; it is
+    /// the alignment test for the supervisor/install/node wiring, and the
+    /// pre-warm a first GUI run benefits from. Run explicitly:
+    /// `cargo test -p harnesslite --lib -- --ignored --nocapture smoke_cold_start`
+    #[tokio::test]
+    #[ignore = "real npm install and a real harness boot; run with --ignored"]
+    async fn smoke_cold_start_installs_reaches_ready_and_stops() {
+        let supervisor = Arc::new(Supervisor::new().expect("supervisor"));
+        let state = AppState::new(Arc::clone(&supervisor));
+
+        let environment = runtime_env::environment();
+        if !environment.harness_installed || !environment.harness_compatible {
+            perform_install(&state).await.expect("managed install");
+        }
+
+        let origin = start_managed(&state).await.expect("managed start");
+        println!("harness ready at {origin}");
+
+        // Stopping must end in a clean Stopped state — the process-tree
+        // reclamation itself is what proc-guard's own tests cover; here it is
+        // the supervised harness that has to go away.
+        supervisor.stop().await;
+        assert!(matches!(supervisor.status(), Status::Stopped));
+    }
 }

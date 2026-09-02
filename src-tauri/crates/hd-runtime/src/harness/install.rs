@@ -263,7 +263,8 @@ where
 
     require_expected_runtime(&staging)?;
 
-    promote(live, &staging, &backup, &journal)
+    promote(live, &staging, &backup, &journal)?;
+    sync_integration_shared_fallback()
 }
 
 async fn run_locked<R>(plan: &InstallPlan, report: R) -> Result<()>
@@ -403,6 +404,74 @@ fn stage_integration(target: &Path) -> Result<()> {
         })
 }
 
+/// Make the runtime-owned integration package resolvable from every profile.
+///
+/// The launcher's `--patch` names the package, but the loader imports it from
+/// the profile directory, and Node's parent lookup from
+/// `$DSH_HOME/profiles/web` never reaches the runtime's own `node_modules`.
+/// Upstream keeps a shared `$DSH_HOME/profiles/node_modules` fallback for its
+/// dependency closure; the integration package is materialized there too, from
+/// the same embedded snapshot the install stages, so every profile resolves
+/// one identical copy and a profile can never pin (or break) the seam.
+pub fn sync_integration_shared_fallback() -> Result<()> {
+    sync_integration_shared_fallback_in(&paths::profiles_dir().join("node_modules"))
+}
+
+fn sync_integration_shared_fallback_in(shared_modules: &Path) -> Result<()> {
+    let target = shared_modules
+        .join("@duyanta123")
+        .join("harnesslite-integration");
+
+    if let Ok(metadata) = std::fs::symlink_metadata(&target) {
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(Error::Harness(format!(
+                "{} is not a safe integration module directory",
+                target.display()
+            )));
+        }
+    }
+
+    let files: [(&str, &[u8]); 4] = [
+        ("package.json", INTEGRATION_MANIFEST),
+        ("cordis.patch.yml", INTEGRATION_PATCH),
+        ("lib/index.js", INTEGRATION_NODE),
+        ("lib/client.js", INTEGRATION_CLIENT),
+    ];
+
+    for (relative, body) in files {
+        let target_file = target.join(relative);
+        if let Ok(metadata) = std::fs::symlink_metadata(&target_file) {
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                return Err(Error::Harness(format!(
+                    "{} is not a safe integration module file",
+                    target_file.display()
+                )));
+            }
+            // Already in place and identical: rewriting it would touch
+            // `$DSH_HOME` on every start for no reason.
+            if std::fs::read(&target_file)
+                .map(|stored| stored == body)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+        }
+        let parent = target_file
+            .parent()
+            .expect("an integration module file has a parent");
+        std::fs::create_dir_all(parent).map_err(|cause| {
+            Error::Harness(format!("{} could not be created: {cause}", parent.display()))
+        })?;
+        std::fs::write(&target_file, body).map_err(|cause| {
+            Error::Harness(format!(
+                "{} could not be written: {cause}",
+                target_file.display()
+            ))
+        })?;
+    }
+    Ok(())
+}
+
 fn qualify_runtime(target: &Path) -> Result<()> {
     let client = target
         .join("node_modules/@deepseek-ai/dsh-client-ui-directory-picker-browse/lib/client.js");
@@ -479,7 +548,7 @@ fn qualify_runtime(target: &Path) -> Result<()> {
         ))
     })?;
     std::fs::write(
-        target.join("dsh-studio-runtime.json"),
+        target.join("harnesslite-runtime.json"),
         format!("{{\"schema\":{RUNTIME_SCHEMA}}}\n"),
     )
     .map_err(|cause| Error::Harness(format!("could not mark the runtime contract: {cause}")))
@@ -685,7 +754,7 @@ fn integration_entry(target: &Path) -> PathBuf {
 }
 
 fn runtime_schema(target: &Path) -> Option<u8> {
-    let raw = std::fs::read_to_string(target.join("dsh-studio-runtime.json")).ok()?;
+    let raw = std::fs::read_to_string(target.join("harnesslite-runtime.json")).ok()?;
     let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
     value.get("schema")?.as_u64()?.try_into().ok()
 }
@@ -885,8 +954,9 @@ mod tests {
     use super::{
         npm_cli_candidates, qualify_runtime, remove_dir_if_exists, replace_once,
         require_expected_runtime, run_command_with_limits, runtime_compatible, runtime_version,
-        InstallPlan, INTEGRATION_PACKAGE, OFFICIAL_REGISTRY, PACKAGE, PNPM_SPEC, PNPM_VERSION,
-        RUNTIME_LOCK, RUNTIME_PACKAGE, RUNTIME_SCHEMA, SPEC, VERSION,
+        sync_integration_shared_fallback_in, InstallPlan, INTEGRATION_PACKAGE,
+        OFFICIAL_REGISTRY, PACKAGE, PNPM_SPEC, PNPM_VERSION, RUNTIME_LOCK, RUNTIME_PACKAGE,
+        RUNTIME_SCHEMA, SPEC, VERSION,
     };
 
     fn write_runtime(root: &Path, version: &str, entry: bool) {
@@ -920,7 +990,7 @@ mod tests {
         )
         .expect("qualified picker");
         fs::write(
-            root.join("dsh-studio-runtime.json"),
+            root.join("harnesslite-runtime.json"),
             format!(r#"{{"schema":{RUNTIME_SCHEMA}}}"#),
         )
         .expect("runtime marker");
@@ -1060,7 +1130,7 @@ mod tests {
     #[test]
     fn compatibility_requires_the_exact_version_and_entry() {
         let root = std::env::temp_dir().join(format!(
-            "dsh-studio-runtime-contract-{}-{}",
+            "harnesslite-runtime-contract-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1072,7 +1142,7 @@ mod tests {
         assert_eq!(runtime_version(&root).as_deref(), Some(VERSION));
         assert!(runtime_compatible(&root));
 
-        fs::remove_file(root.join("dsh-studio-runtime.json")).expect("remove marker");
+        fs::remove_file(root.join("harnesslite-runtime.json")).expect("remove marker");
         assert!(!runtime_compatible(&root));
         write_runtime(&root, VERSION, true);
 
@@ -1087,7 +1157,7 @@ mod tests {
     #[test]
     fn contract_failure_names_the_missing_integration() {
         let root = std::env::temp_dir().join(format!(
-            "dsh-studio-runtime-contract-failure-{}",
+            "harnesslite-runtime-contract-failure-{}",
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&root);
@@ -1104,7 +1174,7 @@ mod tests {
     #[test]
     fn recursive_cleanup_refuses_an_unexpected_file() {
         let path =
-            std::env::temp_dir().join(format!("dsh-studio-runtime-cleanup-{}", std::process::id()));
+            std::env::temp_dir().join(format!("harnesslite-runtime-cleanup-{}", std::process::id()));
         let _ = fs::remove_file(&path);
         fs::write(&path, "not a directory").expect("file");
         assert!(remove_dir_if_exists(&path).is_err());
@@ -1134,7 +1204,7 @@ mod tests {
             return;
         }
         let root = std::env::temp_dir().join(format!(
-            "dsh-studio-picker-qualification-{}",
+            "harnesslite-picker-qualification-{}",
             std::process::id()
         ));
         let target = root
@@ -1147,6 +1217,31 @@ mod tests {
         let patched = fs::read_to_string(target).expect("patched picker");
         assert!(patched.contains("__DSH_DESKTOP_PICK_DIRECTORY__"));
         assert!(patched.contains("openDirectory(targetPath)"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_integration_package_is_materialized_in_the_shared_fallback() {
+        let root = std::env::temp_dir().join(format!(
+            "harnesslite-shared-fallback-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let shared_modules = root.join("profiles").join("node_modules");
+
+        sync_integration_shared_fallback_in(&shared_modules).expect("first sync");
+        let package = shared_modules.join(INTEGRATION_PACKAGE);
+        assert!(package.join("package.json").is_file());
+        assert!(package.join("cordis.patch.yml").is_file());
+        assert!(package.join("lib/index.js").is_file());
+        assert!(package.join("lib/client.js").is_file());
+
+        // A second sync must be a no-op in content, not an error: the shell
+        // runs this on every start against a `$DSH_HOME` it does not own.
+        let before = fs::read(package.join("lib/index.js")).expect("materialized module");
+        sync_integration_shared_fallback_in(&shared_modules).expect("second sync");
+        assert_eq!(fs::read(package.join("lib/index.js")).expect("still there"), before);
+
         let _ = fs::remove_dir_all(root);
     }
 }

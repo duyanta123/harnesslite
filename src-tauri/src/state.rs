@@ -15,6 +15,9 @@ pub struct PendingLink {
 }
 
 impl PendingLink {
+    /// Wired up when the deep-link plugin lands (Phase 4); the parking spot
+    /// exists now so `take` already has its one-shot semantics.
+    #[allow(dead_code)]
     pub fn park(&self, url: String) {
         *self.url.lock().expect("pending link poisoned") = Some(url);
     }
@@ -30,6 +33,9 @@ pub struct AppState {
     /// Set while an install is running, so a second click cannot start another
     /// npm against the same directory.
     pub installing: AtomicBool,
+    /// Set while a Node runtime is being downloaded; the download and the npm
+    /// install it enables must never run at once.
+    pub provisioning: AtomicBool,
     /// The number of harness boots this window has seen, for diagnostics.
     pub boots: AtomicU32,
     pub pending_link: PendingLink,
@@ -40,6 +46,7 @@ impl AppState {
         Self {
             supervisor,
             installing: AtomicBool::new(false),
+            provisioning: AtomicBool::new(false),
             boots: AtomicU32::new(0),
             pending_link: PendingLink::default(),
         }

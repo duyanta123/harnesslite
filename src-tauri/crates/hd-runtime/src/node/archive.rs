@@ -87,6 +87,7 @@ mod tests {
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("sandbox");
         root
     }
 
@@ -101,7 +102,7 @@ mod tests {
         let file = std::fs::File::create(archive).expect("archive file");
         let mut zip = zip::ZipWriter::new(file);
         for root in roots {
-            zip.add_directory(root, SimpleFileOptions::default())
+            zip.add_directory(*root, SimpleFileOptions::default())
                 .expect("release directory");
             zip.start_file(format!("{root}/node.exe"), SimpleFileOptions::default())
                 .expect("member");

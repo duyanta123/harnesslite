@@ -15,7 +15,7 @@ const WEB_BUNDLES = Object.freeze([
 ])
 
 /** Build one generation-scoped service from launcher-authenticated values. */
-export function createStudioHostService(environment = process.env) {
+export function createHostService(environment = process.env) {
   const profileName = requireText(environment.HARNESSLITE_PROFILE, 'profile name')
   if (!isProfileName(profileName)) {
     throw new Error('harnesslite: Host profile name is invalid')
@@ -29,7 +29,7 @@ export function createStudioHostService(environment = process.env) {
     throw new Error('harnesslite: Host profile identity does not match its directory')
   }
   const profilesRoot = dirname(profileDir)
-  const studioVersion = requireText(environment.HARNESSLITE_VERSION, 'Studio version')
+  const shellVersion = requireText(environment.HARNESSLITE_VERSION, 'Shell version')
   const harnessVersion = requireText(environment.HARNESSLITE_RUNTIME_VERSION, 'Harness version')
   let active = true
 
@@ -56,7 +56,7 @@ export function createStudioHostService(environment = process.env) {
   })
   const service = Object.freeze({
     protocol: HARNESSLITE_HOST_PROTOCOL,
-    studio: Object.freeze({ name: 'HarnessLite', version: studioVersion }),
+    shell: Object.freeze({ name: 'HarnessLite', version: shellVersion }),
     harness: Object.freeze({ version: harnessVersion }),
     platform: process.platform,
     capabilities,
@@ -74,7 +74,7 @@ export function createStudioHostService(environment = process.env) {
 
 /** Publish the service through Cordis and bind retained references to this fiber. */
 export function apply(ctx) {
-  const lifetime = createStudioHostService()
+  const lifetime = createHostService()
   ctx.provide('harnessLiteHost', lifetime.service)
   ctx.effect(
     () => () => lifetime.dispose(),

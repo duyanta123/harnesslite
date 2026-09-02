@@ -15,3 +15,28 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 url.workspace = true
+# The one HTTPS client that runs outside the harness's own Node process: on a
+# machine with no Node yet, there is no Node to fetch Node with. The provider
+# choice is left to this crate (ring, below) rather than native-tls, so the
+# certificate behaviour is identical on every platform.
+reqwest = { version = "0.13", default-features = false, features = [
+  "rustls-no-provider",
+  "stream",
+] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+sha2 = "0.10"
+# flate2 arrives through zip's `deflate-flate2` with its backend features left
+# off, and a backend is not optional — so this crate names one explicitly. The
+# pure-Rust `rust_backend` is the choice that stays identical on every platform.
+# (It must sit in this section: a key after a `[target.*]` header joins that
+# target, not these dependencies.)
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
+# The archive shapes official Node ships: a zip on Windows, a gzipped tar
+# everywhere else. Both are declared per-target rather than as one dependency
+# with cfg'd call sites, because neither format exists on the other platform.
+[target.'cfg(windows)'.dependencies]
+zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
+
+[target.'cfg(not(windows))'.dependencies]
+tar = "0.4"

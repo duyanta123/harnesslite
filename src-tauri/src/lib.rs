@@ -94,6 +94,7 @@ pub fn run() {
             commands::harness_start,
             commands::harness_stop,
             commands::harness_install,
+            commands::node_provision,
             commands::desktop_offer,
             commands::desktop_notify,
             commands::desktop_attention,

@@ -73,6 +73,13 @@ pub struct Environment {
 
 /// Inspect the machine. Cheap enough to call whenever the UI needs it.
 pub fn environment() -> Environment {
+    // An install interrupted by a crash is repaired by the next probe that
+    // sees its journal — here — so no UI action is ever needed to clear one.
+    // A recovery that itself fails is the only "problem" this surface reports.
+    let harness_problem = hd_runtime::harness::install::recover_managed_install()
+        .err()
+        .map(|failure| failure.to_string());
+
     // The shell's own store is searched alongside the version managers, so a
     // runtime it installed is chosen by exactly the same rule as one the user
     // installed — and shows up in the same list, labelled for what it is.
@@ -100,9 +107,7 @@ pub fn environment() -> Environment {
         harness_compatible: harness_compatible(),
         harness_version,
         expected_harness_version: contract::DSH_VERSION.to_string(),
-        // TODO(phase-2): surface the install journal's unrecoverable state here
-        // once the install transaction lands.
-        harness_problem: None,
+        harness_problem,
         harness_entry,
         project,
         workspace,
