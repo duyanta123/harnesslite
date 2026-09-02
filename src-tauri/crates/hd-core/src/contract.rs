@@ -47,14 +47,17 @@ pub const ENV_DSH_HOME: &str = "DSH_HOME";
 pub const BRIDGE_PROTOCOL: u32 = 3;
 
 /// The methods the framed UI may call, in the order `hello` reports them.
-pub const BRIDGE_METHODS: [&str; 7] = [
+pub const BRIDGE_METHODS: [&str; 10] = [
     "hello",
     "notify",
+    "attention",
     "pick",
+    "workspace.validate",
     "badge",
-    "profiles",
-    "plugins",
-    "workspace",
+    "profiles.list",
+    "profiles.select",
+    "plugins.install",
+    "plugins.remove",
 ];
 
 // --- channel 3: the Host service -------------------------------------------
@@ -94,7 +97,7 @@ mod tests {
     fn the_bridge_version_and_methods_are_the_negotiated_set() {
         assert_eq!(BRIDGE_PROTOCOL, 3);
         assert_eq!(BRIDGE_METHODS[0], "hello");
-        assert_eq!(BRIDGE_METHODS.len(), 7);
+        assert_eq!(BRIDGE_METHODS.len(), 10);
     }
 
     #[test]

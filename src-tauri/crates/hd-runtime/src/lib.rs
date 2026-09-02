@@ -8,6 +8,8 @@
 //! Depends on `hd-core` for contracts and domain types; owns every spawned
 //! process through `proc-guard`, so a whole tree dies with the shell.
 
+pub mod harness;
+
 /// Workspace version of the HarnessLite shell this crate belongs to.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
