@@ -111,8 +111,7 @@ pub fn environment() -> Environment {
 }
 
 /// Turn the current environment into a runnable launch, or say what is missing.
-pub fn launch_plan() -> Result<LaunchPlan> {
-    let environment = environment();
+pub fn launch_plan() -> Result<LaunchPlan> {    let environment = environment();
 
     let node = environment.node.clone().ok_or_else(|| {
         Error::Node(format!(
@@ -157,4 +156,48 @@ pub fn launch_plan() -> Result<LaunchPlan> {
         port: 0,
         environment: Default::default(),
     })
+}
+
+/// Work out how to install — or reinstall at the locked release — the harness.
+///
+/// Launching only needs Node, but installing needs that exact runtime's npm.
+/// A newer Node-only package must not hide an older complete installation.
+pub fn install_plan() -> Result<hd_runtime::harness::install::InstallPlan> {
+    use hd_runtime::harness::install;
+
+    let environment = environment();
+    let supported = environment
+        .all_node_runtimes
+        .iter()
+        .filter(|install| install.version >= node_runtime::MINIMUM_SUPPORTED)
+        .collect::<Vec<_>>();
+    if supported.is_empty() {
+        return Err(Error::Node(format!(
+            "no usable Node runtime found; HarnessLite needs at least {}.{}.{}",
+            node_runtime::MINIMUM_SUPPORTED.major,
+            node_runtime::MINIMUM_SUPPORTED.minor,
+            node_runtime::MINIMUM_SUPPORTED.patch,
+        )));
+    }
+    let selected = environment.node.as_ref().map(|node| node.path.as_path());
+    let node = selected
+        .and_then(|path| {
+            supported
+                .iter()
+                .copied()
+                .find(|install| install.path == path && install::npm_cli(&install.path).is_some())
+        })
+        .or_else(|| {
+            supported
+                .into_iter()
+                .find(|install| install::npm_cli(&install.path).is_some())
+        })
+        .ok_or_else(|| {
+            Error::Node(
+                "this Node.js install has no npm next to it, so the harness cannot be installed"
+                    .into(),
+            )
+        })?;
+
+    install::plan(&node.path, paths::harness_dir(), install::SPEC.to_string())
 }

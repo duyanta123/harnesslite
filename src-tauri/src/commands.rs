@@ -55,7 +55,12 @@ pub async fn harness_start(state: State<'_, AppState>) -> Result<String> {
 /// Kept separate from the Tauri wrapper because the tray owns the same action
 /// and must not bypass preflight or race an install.
 pub(crate) async fn start_managed(state: &AppState) -> Result<String> {
-    let plan = runtime_env::launch_plan()?;
+    let mut plan = runtime_env::launch_plan()?;
+    // Compose the exact profile once through the launcher itself; a conflict
+    // between patch layers is repaired here, before startup log noise.
+    for notice in hd_runtime::composition::preflight(&plan).await? {
+        state.supervisor.note(Stream::Stderr, notice);
+    }
     let attempted = plan.profile.clone();
     state.boots.fetch_add(1, Ordering::Relaxed);
     match Arc::clone(&state.supervisor).start(plan).await {
@@ -75,7 +80,10 @@ pub(crate) async fn start_managed(state: &AppState) -> Result<String> {
                     "profile {attempted} failed startup; automatically retrying last-known-good profile {recovered}"
                 ),
             );
-            let fallback = runtime_env::launch_plan()?;
+            let mut fallback = runtime_env::launch_plan()?;
+            for notice in hd_runtime::composition::preflight(&fallback).await? {
+                state.supervisor.note(Stream::Stderr, notice);
+            }
             match Arc::clone(&state.supervisor).start(fallback).await {
                 Ok(origin) => {
                     hd_core::profiles::mark_healthy(&recovered)?;
@@ -97,16 +105,57 @@ pub async fn harness_stop(state: State<'_, AppState>) -> Result<()> {
 
 /// Install the harness, or replace it with the locked release.
 ///
-/// TODO(phase-2): route through the hd-runtime install transaction once it
-/// lands; until then the shell refuses honestly rather than pretending.
+/// Resolves only once npm is done, which is a minute or more on a cold cache —
+/// the progress a user sees in the meantime is npm's own output, relayed
+/// through the same log everything else in the shell writes to.
 #[tauri::command]
 pub async fn harness_install(state: State<'_, AppState>) -> Result<()> {
-    if state.installing.load(Ordering::SeqCst) {
+    if state.installing.swap(true, Ordering::SeqCst) {
         return Err(Error::Harness("an install is already running".into()));
     }
-    Err(Error::Harness(
-        "the install transaction is not wired into this build yet".into(),
-    ))
+    let outcome = perform_install(&state).await;
+    state.installing.store(false, Ordering::SeqCst);
+
+    match &outcome {
+        Ok(()) => state.supervisor.note(
+            Stream::Stdout,
+            format!("{} is installed", hd_runtime::harness::install::PACKAGE),
+        ),
+        Err(failure) => state.supervisor.note(Stream::Stderr, failure.to_string()),
+    }
+    outcome
+}
+
+async fn perform_install(state: &AppState) -> Result<()> {
+    use hd_runtime::harness::install;
+
+    // Every shared fallback junction points into the live runtime. Leave no
+    // supervised process resolving through those junctions while the verified
+    // staging directory is promoted over the live directory.
+    state.supervisor.stop().await;
+    state.supervisor.wait_until_inactive().await?;
+
+    // TODO(phase-2): when the selected Node has no npm, provision the managed
+    // runtime first (hd-runtime/src/node) instead of refusing.
+    let plan = runtime_env::install_plan()?;
+    let supervisor = Arc::clone(&state.supervisor);
+    supervisor.note(
+        Stream::Stdout,
+        format!("installing {} into {}", plan.spec, plan.target.display()),
+    );
+
+    let reporter = Arc::clone(&supervisor);
+    install::run_transactional(&plan, move |stream, line| reporter.note(stream, line)).await?;
+
+    // npm can exit successfully having installed something other than what we
+    // need — a scope typo, a package that moved. Believe the file, not the
+    // exit code.
+    if !hd_core::paths::harness_entry().is_file() {
+        return Err(Error::Harness(
+            "npm reported success but the harness entry point is missing".into(),
+        ));
+    }
+    Ok(())
 }
 
 /* -------------------------------------------------------------------------- */
