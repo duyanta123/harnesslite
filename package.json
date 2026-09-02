@@ -11,11 +11,16 @@
     "preview": "vite preview",
     "test": "vitest run",
     "tauri": "tauri",
-    "bundle:local": "tauri build --no-sign"
+    "bundle:local": "tauri build --no-sign",
+    "verify:contracts": "node scripts/verify-contract-pin.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.3",
     "@tauri-apps/plugin-dialog": "^2.7.3",
+    "@tauri-apps/plugin-opener": "^2.5.5",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.11.0",
     "lucide-react": "^0.577.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

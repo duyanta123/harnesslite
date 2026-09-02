@@ -8,6 +8,7 @@
 mod commands;
 mod runtime_env;
 mod state;
+mod window_state;
 
 use std::sync::Arc;
 
@@ -41,6 +42,49 @@ pub fn run() {
             let supervisor = Supervisor::new().expect("supervisor");
             commands::relay_supervisor_events(app.handle().clone(), Arc::clone(&supervisor));
             app.manage(AppState::new(supervisor));
+
+            // Restore the placement the user left the window in, if there was
+            // one; the conf-file defaults cover the first run.
+            if let (Some(window), Some(placement)) =
+                (app.get_webview_window("main"), window_state::load())
+            {
+                let _ = window.set_position(tauri::LogicalPosition::new(
+                    placement.x.max(0),
+                    placement.y.max(0),
+                ));
+                if !placement.maximized {
+                    let _ = window.set_size(tauri::LogicalSize::new(
+                        placement.width.max(940),
+                        placement.height.max(600),
+                    ));
+                }
+            }
+
+            // Remember the placement on the way out. The guard watches for
+            // Windows' sharing-retry window; a failed write keeps last file.
+            if let Some(window) = app.get_webview_window("main") {
+                let handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { .. } = event {
+                        if let Some(window) = handle.get_webview_window("main") {
+                            let maximized = window.is_maximized().unwrap_or(false);
+                            if let Ok(scale) = window.scale_factor() {
+                                if let Ok(position) = window.outer_position() {
+                                    if let Ok(size) = window.inner_size() {
+                                        let _ = window_state::save(&window_state::Placement {
+                                            x: (position.x as f64 / scale) as i32,
+                                            y: (position.y as f64 / scale) as i32,
+                                            width: (size.width as f64 / scale) as u32,
+                                            height: (size.height as f64 / scale) as u32,
+                                            maximized,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

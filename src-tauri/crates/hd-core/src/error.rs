@@ -30,6 +30,18 @@ pub enum Error {
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
+/// The IPC boundary reads the sentence, not the variant: a Tauri command that
+/// fails reports `self.to_string()` to the frontend, which is what `describe()`
+/// renders into an error slot.
+impl serde::Serialize for Error {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
