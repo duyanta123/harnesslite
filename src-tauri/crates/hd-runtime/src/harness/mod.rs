@@ -7,6 +7,7 @@
 //! listens lives here.
 
 pub mod health;
+pub mod install;
 pub mod logging;
 pub mod readiness;
 pub mod supervisor;
