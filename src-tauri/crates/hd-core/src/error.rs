@@ -4,8 +4,6 @@
 //! verbatim to the frontend, and a sentence written where the failure happened
 //! is worth more to the person reading it than a taxonomy is.
 
-use std::path::Path;
-
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0}")]
@@ -31,18 +29,6 @@ pub enum Error {
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
-
-impl Error {
-    /// The path whose access failed, when the error carries one.
-    pub fn path(&self) -> Option<&Path> {
-        match self {
-            Error::Io(cause) => cause
-                .raw_os_error()
-                .and_then(|_| Some(Path::new(cause.to_string().as_str()))),
-            _ => None,
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

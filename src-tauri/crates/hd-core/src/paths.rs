@@ -188,6 +188,42 @@ pub fn default_workspace_dir() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Public because anything comparing a canonicalized path against what the
+/// user picked has to insist on the same spelling, wherever the path came from.
+#[cfg(windows)]
+pub fn plain_path(path: PathBuf) -> PathBuf {
+    // A path that is not valid Unicode cannot be reasoned about as text.
+    let Some(text) = path.to_str() else {
+        return path;
+    };
+
+    if let Some(share) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{share}"));
+    }
+    // Only a drive path has a shorter spelling. A volume GUID has none, and
+    // returning `Volume{...}\node.exe` would be worse than keeping the prefix.
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) if is_drive_path(rest) => PathBuf::from(rest),
+        _ => path,
+    }
+}
+
+#[cfg(windows)]
+fn is_drive_path(text: &str) -> bool {
+    let mut characters = text.chars();
+    characters
+        .next()
+        .is_some_and(|letter| letter.is_ascii_alphabetic())
+        && characters.next() == Some(':')
+        && characters.next() == Some('\\')
+}
+
+/// Nothing to undo: no other platform spells a path two ways.
+#[cfg(not(windows))]
+pub fn plain_path(path: PathBuf) -> PathBuf {
+    path
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

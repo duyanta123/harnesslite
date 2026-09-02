@@ -11,9 +11,13 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 dirs.workspace = true
+sha2 = "0.10"
+# Pure-Rust Zstandard decode, one direction only: session logs are read, never
+# written — the harness is the only writer of its own session files.
+ruzstd = { version = "0.9", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_System_WindowsProgramming"] }

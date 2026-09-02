@@ -20,8 +20,7 @@ impl Admission {
         self.state == "blocked"
     }
 
-    pub fn safe(path: &Path, filesystem: &str) -> Self {
-        let _ = path;
+    fn safe(filesystem: &str) -> Self {
         Self {
             state: "safe",
             filesystem: Some(filesystem.to_string()),
@@ -37,7 +36,7 @@ impl Admission {
         }
     }
 
-    fn blocked(reason: impl Into<String>) -> Self {
+    fn blocked_with(reason: impl Into<String>) -> Self {
         Self {
             state: "blocked",
             filesystem: None,
@@ -49,7 +48,7 @@ impl Admission {
 /// Validate a candidate directory without touching it.
 pub fn inspect(path: &Path) -> Admission {
     if !path.is_dir() {
-        return Admission::blocked("the workspace directory does not exist or is not a directory");
+        return Admission::blocked_with("the workspace directory does not exist or is not a directory");
     }
     platform(path)
 }
@@ -85,7 +84,7 @@ fn platform(path: &Path) -> Admission {
 
     let drive = unsafe { GetDriveTypeW(root.as_ptr()) };
     if drive == DRIVE_REMOTE || drive == DRIVE_REMOVABLE {
-        return Admission::blocked(if drive == DRIVE_REMOTE {
+        return Admission::blocked_with(if drive == DRIVE_REMOTE {
             "network workspaces are blocked because package and lock-file writes are not reliable"
         } else {
             "removable workspaces are blocked because the volume can disappear during a session"
@@ -122,9 +121,9 @@ fn platform(path: &Path) -> Admission {
 fn classify(filesystem: &str) -> Admission {
     let normalized = filesystem.to_ascii_uppercase();
     if matches!(normalized.as_str(), "NTFS" | "REFS") {
-        Admission::safe(Path::new(""), filesystem)
+        Admission::safe(filesystem)
     } else if matches!(normalized.as_str(), "FAT" | "FAT32" | "EXFAT") {
-        Admission::blocked(format!(
+        Admission::blocked_with(format!(
             "{filesystem} cannot provide the links and atomic writes required by the workspace"
         ))
     } else {
@@ -137,14 +136,14 @@ fn classify(filesystem: &str) -> Admission {
 
 /// Canonicalize a candidate project path and apply the admission rules.
 pub fn inspect_canonical(path: &std::path::PathBuf) -> Result<std::path::PathBuf, String> {
-    let canonical = path.canonicalize().map_err(|cause| {
-        format!("{} could not be opened: {cause}", path.display())
-    })?;
-    let canonical = node_runtime::plain_path(canonical);
+    let canonical = path
+        .canonicalize()
+        .map_err(|cause| format!("{} could not be opened: {cause}", path.display()))?;
+    let canonical = crate::paths::plain_path(canonical);
     let admission = inspect(&canonical);
     if admission.blocked() {
         return Err(admission.reason.unwrap_or_else(|| {
-            "the selected directory is not a safe workspace".into()
+            "the selected directory is not a safe workspace".to_string()
         }));
     }
     Ok(canonical)

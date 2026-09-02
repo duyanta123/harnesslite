@@ -14,7 +14,14 @@
 //! what makes the unit-test suite the specification of record.
 
 pub mod atomic;
+pub mod contract;
+pub mod error;
 pub mod paths;
+pub mod plugins;
+pub mod profiles;
+pub mod projects;
+pub mod sessions;
+pub mod validate;
 
 /// Workspace version of the HarnessLite shell this crate belongs to.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
