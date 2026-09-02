@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use hd_core::error::{Error, Result};
 use hd_core::paths;
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Placement {
     pub x: i32,
@@ -50,7 +50,7 @@ mod tests {
     #[test]
     fn placement_round_trips_through_the_frozen_fixture_shape() {
         // The fixture is HarnessDeck's real window.json; the schema is shared.
-        let body = include_str!("../../../tests/fixtures/harnessdeck/window.json");
+        let body = include_str!("../../tests/fixtures/harnessdeck/window.json");
         let placement: Placement = serde_json::from_str(body).expect("fixture parses");
         assert_eq!(placement.width, 2560);
         assert!(placement.maximized);
