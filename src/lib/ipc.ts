@@ -2,22 +2,10 @@
  * Typed view of the Rust command surface.
  *
  * These declarations mirror `src-tauri/src`; when a shape changes there it must
- * change here, because nothing else keeps the two sides honest. Event channel
- * names come from the Desktop Protocol mirror rather than being spelled here —
- * the contract crate owns them.
+ * change here, because nothing else keeps the two sides honest.
  */
 import { invoke } from '@tauri-apps/api/core'
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event'
-
-import {
-  EVENT_DESKTOP_LINK,
-  EVENT_HARNESS,
-  EVENT_NODE_PROGRESS,
-  EVENT_REMOTE,
-  EVENT_SHARED_STATE,
-  EVENT_TERMINAL_EXIT,
-  EVENT_TERMINAL_OUTPUT,
-} from '@/console/protocol'
 
 export interface NodeVersion {
   major: number
@@ -32,12 +20,6 @@ export interface NodeInstallation {
   path: string
   version: NodeVersion
   source: NodeSource
-}
-
-export interface Admission {
-  state: 'safe' | 'warning' | 'blocked'
-  filesystem: string | null
-  reason: string | null
 }
 
 export interface Environment {
@@ -55,7 +37,11 @@ export interface Environment {
   /** The project the next Harness start serves. */
   project: string
   workspace: string
-  workspaceAdmission: Admission
+  workspaceAdmission: {
+    state: 'safe' | 'warning' | 'blocked'
+    filesystem: string | null
+    reason: string | null
+  }
 }
 
 export type Status =
@@ -77,6 +63,9 @@ export interface LogLine {
  * with a `kind` alongside its `phase` rather than a wrapper around one.
  */
 export type HarnessEvent = ({ kind: 'status' } & Status) | ({ kind: 'log' } & LogLine)
+
+/** Channel `lib.rs` emits supervisor events on. */
+const EVENT_CHANNEL = 'harness://event'
 
 export const formatVersion = (version: NodeVersion): string =>
   `${version.major}.${version.minor}.${version.patch}`
@@ -101,14 +90,14 @@ export const start = (): Promise<string> => invoke('harness_start')
 
 export const stop = (): Promise<void> => invoke('harness_stop')
 
-/** Install the harness, or replace it with the locked release. */
+/** Install the harness, or replace it with the latest release. */
 export const install = (): Promise<void> => invoke('harness_install')
 
 export const log = (): Promise<LogLine[]> => invoke('harness_log')
 
 /** Subscribe to supervisor status changes and log output. */
 export const onHarnessEvent = (handler: (event: HarnessEvent) => void): Promise<UnlistenFn> =>
-  listen<HarnessEvent>(EVENT_HARNESS, (message) => handler(message.payload))
+  listen<HarnessEvent>(EVENT_CHANNEL, (message) => handler(message.payload))
 
 /* -------------------------------------------------------------------------- */
 /* Node runtime                                                               */
@@ -116,6 +105,9 @@ export const onHarnessEvent = (handler: (event: HarnessEvent) => void): Promise<
 
 /**
  * How far along an in-app Node install is.
+ *
+ * Every phase past the first names its own release, so nothing here has to be
+ * read in sequence — see `Progress` in `src-tauri/src/node/mod.rs`.
  *
  * `total` is whatever the mirror declared, so it can be missing: a chunked reply
  * has no content length, and a progress bar that invents one would be a lie the
@@ -128,6 +120,9 @@ export type NodeProgress =
   | { phase: 'verifying'; version: string }
   | { phase: 'extracting'; version: string }
   | { phase: 'installed'; version: string }
+
+/** Channel `node/commands.rs` reports install progress on. */
+const NODE_CHANNEL = 'node://progress'
 
 /**
  * Download and install a Node runtime into this application's own directory.
@@ -142,7 +137,7 @@ export const nodeSelect = (path: string): Promise<NodeInstallation> =>
   invoke('node_select', { path })
 
 export const onNodeProgress = (handler: (progress: NodeProgress) => void): Promise<UnlistenFn> =>
-  listen<NodeProgress>(EVENT_NODE_PROGRESS, (message) => handler(message.payload))
+  listen<NodeProgress>(NODE_CHANNEL, (message) => handler(message.payload))
 
 /* -------------------------------------------------------------------------- */
 /* Remote access                                                              */
@@ -183,6 +178,9 @@ export interface RemoteStatus {
   refused: number
 }
 
+/** Channel `lib.rs` pokes when a remote connection opens or closes. */
+const REMOTE_CHANNEL = 'remote://changed'
+
 export const remoteStatus = (): Promise<RemoteStatus> => invoke('remote_status')
 
 /** Open a door in front of the harness. Requires it to be serving. */
@@ -194,21 +192,24 @@ export const remoteClose = (): Promise<RemoteStatus> => invoke('remote_close')
 export const remoteRenew = (): Promise<RemoteStatus> => invoke('remote_renew')
 
 /** Forget one device, ending anything it has open. */
-export const remoteForget = (id: string): Promise<RemoteStatus> =>
-  invoke('remote_forget', { id })
+export const remoteForget = (id: string): Promise<RemoteStatus> => invoke('remote_forget', { id })
 
-/** Subscribe to connection changes. */
+/**
+ * Subscribe to connection changes.
+ *
+ * The signal carries nothing on purpose — the panel asks for the numbers itself,
+ * so a coalesced notification costs a redraw rather than a wrong count.
+ */
 export const onRemoteChange = (handler: () => void): Promise<UnlistenFn> =>
-  listen(EVENT_REMOTE, () => handler())
+  listen(REMOTE_CHANNEL, () => handler())
 
 /** Validate and remember the working directory used by the next Harness start. */
-export const workspaceSelect = (path: string): Promise<Admission> =>
-  invoke('projects_inspect_commit', { path })
+export const workspaceSelect = (path: string): Promise<Environment['workspaceAdmission']> =>
+  invoke('workspace_select', { path })
 
 /** Inspect a candidate without changing the working directory for the next start. */
-export const workspaceInspect = (path: string): Promise<Admission> =>
-  invoke('projects_inspect', { path })
-
+export const workspaceInspect = (path: string): Promise<Environment['workspaceAdmission']> =>
+  invoke('workspace_inspect', { path })
 /* -------------------------------------------------------------------------- */
 /* Projects                                                                   */
 /* -------------------------------------------------------------------------- */
@@ -258,7 +259,10 @@ export interface InstalledPlugin {
   spec: string
   /** Whether the package's profile patch is in the layer stack. */
   active: boolean
-  /** Installed, but taken out of the layer stack by the user. */
+  /**
+   * Installed, but taken out of the layer stack by the user. Different from a
+   * package that was never in it: this one comes back without a download.
+   */
   disabled: boolean
   /** Part of the profile template, so never removable from here. */
   builtin: boolean
@@ -308,12 +312,10 @@ export interface PluginPage {
 export interface CatalogSource {
   id: string
   label: string
-  kind: 'npm' | 'reviewed-http' | 'curated-catalog' | 'standard-http-v1'
+  kind: 'npm' | 'reviewed-http' | 'standard-http-v1'
   endpoint: string | null
   builtIn: boolean
   active: boolean
-  /** Trust tier — every entry from a custom source is unverified. */
-  trust: 'builtin-npm' | 'builtin-awesome' | 'builtin-reviewed' | 'custom-unverified'
 }
 
 /** Fresh native conformance report for one bounded discovery source. */
@@ -437,7 +439,13 @@ export const pluginAdd = (token: string): Promise<PluginState> => invoke('plugin
 export const pluginRemove = (name: string): Promise<PluginState> =>
   invoke('plugin_remove', { name })
 
-/** Take an installed plugin out of the layer stack, or put it back. */
+/**
+ * Take an installed plugin out of the layer stack, or put it back.
+ *
+ * Nothing is fetched and nothing is deleted, so unlike `pluginAdd` this answers
+ * immediately — and unlike `pluginRemove` it is undone by asking for the
+ * opposite.
+ */
 export const pluginSwitch = (name: string, enabled: boolean): Promise<PluginState> =>
   invoke('plugin_switch', { name, enabled })
 
@@ -453,7 +461,13 @@ export interface ArchivePackage {
   bytes: number
 }
 
-/** Read a picked archive without installing anything from it. */
+/**
+ * Read a picked archive without installing anything from it.
+ *
+ * Its own call so the file can be described before it is installed: a file name
+ * is whatever the person who sent it typed, and the package inside is the thing
+ * about to be added to a profile.
+ */
 export const pluginArchive = (path: string): Promise<ArchivePackage> =>
   invoke('plugin_archive', { path })
 
@@ -473,7 +487,11 @@ export interface Profile {
   initialized: boolean
   /** A name the harness ships a template for, and re-creates if it goes. */
   shipped: boolean
-  /** Whether it carries the bundles that serve this window. */
+  /**
+   * Whether it carries the bundles that serve this window. Reported, never
+   * enforced: what boots is the harness's call, and the shell only has to make
+   * sure the answer is not a surprise.
+   */
   servesWindow: boolean
   /** Plugins installed into it, the bundles it came with excluded. */
   plugins: number
@@ -596,7 +614,15 @@ export const profileImport = (path: string, name: string): Promise<Roster> =>
 /* Agent presets                                                              */
 /* -------------------------------------------------------------------------- */
 
-/** One of the agents the harness can start a session as. */
+/**
+ * One of the agents the harness can start a session as.
+ *
+ * `name` and `description` are the harness's own words, in whatever language it
+ * shipped them in — not translated here, because a preset the user wrote gets
+ * shown the same way and inventing text for someone else's preset would be worse
+ * than showing theirs. Both are absent when the preset carries no readable
+ * metadata, and then the id is what there is to show.
+ */
 export interface AgentPreset {
   id: string
   name: string | null
@@ -614,7 +640,12 @@ export interface PresetRoster {
 
 export const presetRoster = (): Promise<PresetRoster> => invoke('preset_roster')
 
-/** Choose what new sessions start as. Safe while the harness is running. */
+/**
+ * Choose what new sessions start as.
+ *
+ * Safe while the harness is running: it re-reads the choice for every session it
+ * creates, so this changes the next one and leaves open ones alone.
+ */
 export const presetChoose = (id: string): Promise<PresetRoster> => invoke('preset_choose', { id })
 
 /* -------------------------------------------------------------------------- */
@@ -643,6 +674,10 @@ export interface TerminalExit {
   code: number | null
 }
 
+/** Channels `terminal/mod.rs` emits on. */
+const TERMINAL_OUTPUT = 'terminal://output'
+const TERMINAL_EXIT = 'terminal://exit'
+
 /**
  * Open a shell, sized to the pane that is about to show it.
  *
@@ -666,16 +701,16 @@ export const terminalClose = (id: string): Promise<void> => invoke('terminal_clo
 export const terminalList = (): Promise<TerminalSession[]> => invoke('terminal_list')
 
 export const onTerminalOutput = (handler: (output: TerminalOutput) => void): Promise<UnlistenFn> =>
-  listen<TerminalOutput>(EVENT_TERMINAL_OUTPUT, (message) => handler(message.payload))
+  listen<TerminalOutput>(TERMINAL_OUTPUT, (message) => handler(message.payload))
 
 export const onTerminalExit = (handler: (exit: TerminalExit) => void): Promise<UnlistenFn> =>
-  listen<TerminalExit>(EVENT_TERMINAL_EXIT, (message) => handler(message.payload))
+  listen<TerminalExit>(TERMINAL_EXIT, (message) => handler(message.payload))
 
 /* -------------------------------------------------------------------------- */
 /* Session history                                                            */
 /* -------------------------------------------------------------------------- */
 
-/** Whose a line was. */
+/** Whose a line was — see `Role` in `src-tauri/src/sessions/mod.rs`. */
 export type Role = 'user' | 'assistant' | 'tool' | 'context'
 
 /** What a session spent, kept apart because cached input is not billed as fresh. */
@@ -769,7 +804,13 @@ export const sessionSearch = (query: string, project?: string): Promise<SessionH
 export const sessionRead = (id: string): Promise<SessionTranscript> =>
   invoke('session_read', { id })
 
-/** The three shapes a conversation can leave in. */
+/**
+ * The three shapes a conversation can leave in.
+ *
+ * Chosen by where it is going rather than by taste: Markdown for an issue or a
+ * weekly note, HTML for a file somebody opens without any tooling at all, and
+ * JSON for whatever reads it next.
+ */
 export type SessionFormat = 'markdown' | 'html' | 'json'
 
 /** A rendered session, and what to call the file it should go in. */
@@ -789,7 +830,12 @@ export interface SessionExport {
 export const sessionExport = (id: string, format: SessionFormat): Promise<SessionExport> =>
   invoke('session_export', { id, format })
 
-/** Put a rendered session where the save dialog pointed. */
+/**
+ * Put a rendered session where the save dialog pointed.
+ *
+ * Rust does the writing because this shell holds no filesystem permission at
+ * all — the only path it can name is the one the system's own dialog returned.
+ */
 export const sessionSave = (path: string, text: string): Promise<void> =>
   invoke('session_save', { path, text })
 
@@ -800,16 +846,24 @@ export const sessionSave = (path: string, text: string): Promise<void> =>
 /**
  * Move the window's material into the given light or dark.
  *
- * A no-op where there is no material, so the caller does not have to know.
+ * A no-op where there is no material, so the caller does not have to know. Worth
+ * the round trip even though the stylesheet has already changed: on Windows the
+ * Mica attributes carry the frame's dark-mode flag with them, and that flag is
+ * what colours the resize border and the snap-layouts flyout — parts of the
+ * window CSS cannot reach.
  */
-export const windowMaterial = (dark: boolean): Promise<void> =>
-  invoke('window_material', { dark })
+export const windowMaterial = (dark: boolean): Promise<void> => invoke('window_material', { dark })
 
 /**
  * Open another window onto the same harness.
  *
  * Nothing is duplicated by this: one supervisor, one profile, one shelf of
- * sessions, and every window a view onto them.
+ * sessions, and every window a view onto them. What the second window has of its
+ * own is the conversation loaded in it, which is the reason to ask for one.
+ *
+ * Rust picks where it lands and what it is called, because both are answers
+ * about the machine — which display the window that asked is on, and which
+ * numbers are already taken.
  */
 export const windowOpen = (): Promise<void> => invoke('window_open')
 
@@ -822,27 +876,33 @@ export const windowOpen = (): Promise<void> => invoke('window_open')
  *
  * `theme` is a line in storage, `profiles` is a set of directories on disk.
  * Nothing the supervisor owns belongs here — the harness, remote access and the
- * shells are already emitted from Rust to every window.
+ * shells are already emitted from Rust to every window, and echoing one of them
+ * would be a second source of truth for something that has one.
  */
 export type Shared = 'theme' | 'profiles' | 'presentation' | 'projects'
+
+/** Channel the windows use to poke each other. */
+const SHARED_CHANNEL = 'shell://changed'
 
 /**
  * Say that a shared thing has changed.
  *
- * The signal names a subject and never carries the new value: a listener that
- * reads the answer itself cannot apply a stale one. It also comes back to the
- * window that sent it, which is why every listener has to be idempotent.
+ * The signal names a subject and never carries the new value, for the reason
+ * `onRemoteChange` gives: a listener that reads the answer itself cannot apply
+ * a stale one. It also comes back to the window that sent it, which is why
+ * every listener has to be idempotent — being told twice must cost a reread
+ * rather than a wrong screen.
  */
-export const announce = (subject: Shared): Promise<void> => emit(EVENT_SHARED_STATE, subject)
+export const announce = (subject: Shared): Promise<void> => emit(SHARED_CHANNEL, subject)
 
 export const onSharedChange = (handler: (subject: Shared) => void): Promise<UnlistenFn> =>
-  listen<Shared>(EVENT_SHARED_STATE, (message) => handler(message.payload))
+  listen<Shared>(SHARED_CHANNEL, (message) => handler(message.payload))
 
 /* -------------------------------------------------------------------------- */
 /* Desktop service interface                                                  */
 /* -------------------------------------------------------------------------- */
 
-/** A `harnesslite://` link, already taken apart. */
+/** A `harnesslite://` link, already taken apart — see `src-tauri/src/desktop/mod.rs`. */
 export interface DesktopLink {
   url: string
   /** Host and path as one path, slashes trimmed: `profile/lab`. */
@@ -863,6 +923,9 @@ export interface DesktopOffer {
   link: DesktopLink | null
 }
 
+/** Channel `desktop/mod.rs` forwards `harnesslite://` links on. */
+const LINK_CHANNEL = 'desktop://link'
+
 /**
  * Describe the desktop, and take any link that was waiting for a listener.
  *
@@ -882,7 +945,7 @@ export const desktopAttention = (kind: 'job-completed' | 'job-failed'): Promise<
 export const desktopBadge = (count: number): Promise<void> => invoke('desktop_badge', { count })
 
 export const onDesktopLink = (handler: (link: DesktopLink) => void): Promise<UnlistenFn> =>
-  listen<DesktopLink>(EVENT_DESKTOP_LINK, (message) => handler(message.payload))
+  listen<DesktopLink>(LINK_CHANNEL, (message) => handler(message.payload))
 
 /* -------------------------------------------------------------------------- */
 /* Startup                                                                    */
@@ -894,7 +957,10 @@ export interface Startup {
   autostart: boolean
   /** The accelerator the user chose, if any. */
   shortcut: string | null
-  /** Whether that accelerator is registered right now. */
+  /**
+   * Whether that accelerator is registered right now. False while one is set
+   * means another program on this machine got to the combination first.
+   */
   held: boolean
   /** What to offer when nothing is chosen yet. */
   suggested: string
@@ -914,10 +980,7 @@ export interface NotificationPreferences {
 }
 
 export type NotificationPreference =
-  | 'turn-completed'
-  | 'turn-failed'
-  | 'job-completed'
-  | 'job-failed'
+  'turn-completed' | 'turn-failed' | 'job-completed' | 'job-failed'
 
 export const startupState = (): Promise<Startup> => invoke('startup_state')
 
@@ -995,3 +1058,8 @@ export const frontendCrash = (payload: {
 
 /** Mark this window healthy only after React committed the application root. */
 export const rendererReady = (): Promise<void> => invoke('renderer_ready')
+const APPLICATION_CHECK_UPDATE = 'application://check-update'
+
+/** The native macOS application menu asked for an interactive update check. */
+export const onApplicationCheckUpdate = (handler: () => void): Promise<UnlistenFn> =>
+  listen(APPLICATION_CHECK_UPDATE, handler)

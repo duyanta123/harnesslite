@@ -1,0 +1,163 @@
+import { useState, type FormEvent } from 'react'
+import { CheckCircle2, Database, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react'
+
+import { Badge } from '@/components/Badge'
+import { Button } from '@/components/Button'
+import { Modal } from '@/components/Modal'
+import { t } from '@/lib/i18n'
+import { usePlugins } from '@/state/plugins'
+
+interface CatalogSourcesDialogProps {
+  onClose: () => void
+}
+
+/** Add and remove public Schema-compatible discovery endpoints. */
+export function CatalogSourcesDialog({ onClose }: CatalogSourcesDialogProps) {
+  const sources = usePlugins((state) => state.sources)
+  const sourceWorking = usePlugins((state) => state.sourceWorking)
+  const sourceHealth = usePlugins((state) => state.sourceHealth)
+  const checkingSource = usePlugins((state) => state.checkingSource)
+  const addSource = usePlugins((state) => state.addSource)
+  const removeSource = usePlugins((state) => state.removeSource)
+  const checkSource = usePlugins((state) => state.checkSource)
+  const [adding, setAdding] = useState(false)
+  const [label, setLabel] = useState('')
+  const [endpoint, setEndpoint] = useState('')
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (adding || label.trim() === '' || endpoint.trim() === '') return
+    setAdding(true)
+    try {
+      if (await addSource(label, endpoint)) {
+        setLabel('')
+        setEndpoint('')
+      }
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  return (
+    <Modal
+      icon={Database}
+      title={t('plugins.sources.title')}
+      subtitle={t('plugins.sources.subtitle')}
+      onClose={onClose}
+      closeLabel={t('plugins.close')}
+      width={560}
+      z={40}
+    >
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <ul className="overflow-hidden rounded-control border border-line">
+          {sources.map((source) => {
+            const health = sourceHealth[source.id]
+            return (
+              <li
+                key={source.id}
+                className="flex items-center gap-3 border-b border-line px-3 py-2.5 last:border-b-0"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-[12px] font-medium text-text">
+                      {source.label}
+                    </span>
+                    {source.active && <Badge tone="ok">{t('plugins.sources.active')}</Badge>}
+                    {source.builtIn && <Badge tone="neutral">{t('plugins.builtin')}</Badge>}
+                  </div>
+                  <p className="mt-1 truncate font-mono text-[10px] text-faint">
+                    {source.endpoint ?? source.kind}
+                  </p>
+                  {health && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-faint">
+                      <span className="inline-flex items-center gap-1 text-ok">
+                        <CheckCircle2 size={10} aria-hidden="true" />
+                        {t('plugins.sources.conformant')}
+                      </span>
+                      <span>{health.contract}</span>
+                      <span>
+                        {health.installable}/{health.items}{' '}
+                        {t('plugins.sources.installable')}
+                      </span>
+                      <span>{health.latencyMs} ms</span>
+                      {health.warnings.map((warning) => (
+                        <span key={warning} className="w-full text-warn">
+                          {warning}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void checkSource(source.id)}
+                  disabled={sourceWorking || checkingSource !== null}
+                  aria-label={t('plugins.sources.check')}
+                  className="grid size-7 shrink-0 place-items-center rounded-control text-faint hover:bg-brand/10 hover:text-brand disabled:opacity-50"
+                >
+                  {checkingSource === source.id ? (
+                    <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+                  ) : (
+                    <RefreshCw size={13} aria-hidden="true" />
+                  )}
+                </button>
+                {!source.builtIn && (
+                  <button
+                    type="button"
+                    onClick={() => void removeSource(source.id)}
+                    disabled={sourceWorking}
+                    aria-label={t('plugins.sources.remove')}
+                    className="grid size-7 shrink-0 place-items-center rounded-control text-faint hover:bg-danger/10 hover:text-danger"
+                  >
+                    <Trash2 size={13} aria-hidden="true" />
+                  </button>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+
+        <form
+          onSubmit={(event) => void submit(event)}
+          className="mt-4 rounded-control border border-line bg-canvas-deep/45 p-3"
+        >
+          <h3 className="caption">{t('plugins.sources.add')}</h3>
+          <p className="mt-1 text-[10.5px] leading-relaxed text-faint">
+            {t('plugins.sources.security')}
+          </p>
+          <div className="mt-3 grid gap-2">
+            <input
+              value={label}
+              aria-label={t('plugins.sources.name')}
+              onChange={(event) => setLabel(event.target.value)}
+              placeholder={t('plugins.sources.name')}
+              maxLength={64}
+              className="h-8 rounded-control border border-line bg-surface px-2.5 text-[11.5px] text-text outline-none focus:border-brand"
+            />
+            <input
+              value={endpoint}
+              aria-label={t('plugins.sources.endpoint')}
+              onChange={(event) => setEndpoint(event.target.value)}
+              placeholder="https://catalog.example/plugins.json"
+              inputMode="url"
+              spellCheck={false}
+              className="h-8 rounded-control border border-line bg-surface px-2.5 font-mono text-[10.5px] text-text outline-none focus:border-brand"
+            />
+          </div>
+          <div className="mt-3 flex justify-end">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={
+                adding || sourceWorking || label.trim() === '' || endpoint.trim() === ''
+              }
+            >
+              {adding ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+              {adding ? t('plugins.sources.validating') : t('plugins.sources.addAction')}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </Modal>
+  )
+}
