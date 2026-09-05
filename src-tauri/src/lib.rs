@@ -7,6 +7,7 @@
 
 mod commands;
 mod diagnostics;
+mod import;
 mod plugins;
 mod presets;
 mod profiles_cmd;
@@ -63,6 +64,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            // The one-time import, before any state is read: a returning
+            // HarnessDeck user opens their own projects, not a blank shell.
+            import::import_once();
+
             let supervisor = Supervisor::new().expect("supervisor");
             commands::relay_supervisor_events(app.handle().clone(), Arc::clone(&supervisor));
             let remote = hd_runtime::remote::Remote::new();
