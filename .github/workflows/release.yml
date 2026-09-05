@@ -38,10 +38,22 @@ jobs:
         env:
           HARNESSLITE_NODE_VERSION: v22.21.0
 
+      # The updater artifacts (.sig) only exist when the signing key is
+      # present; without it the release would ship without an update feed.
       - name: Build bundles
         run: pnpm tauri build --config src-tauri/tauri.full.conf.json
         env:
           HARNESSLITE_EDITION: full
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # This repository's updater key is encrypted with an empty password.
+          # Supplying it explicitly keeps the bundler non-interactive in CI.
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+
+      - name: Build the updater manifest
+        run: |
+          node scripts/make-updater-manifest.mjs `
+            --tag ${{ github.ref_name }} `
+            --out src-tauri/target/release/bundle/updater/latest.json
 
       - name: Verify release assets
         run: node scripts/verify-release-assets.mjs
@@ -53,5 +65,7 @@ jobs:
         with:
           files: |
             src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*.sig
             src-tauri/target/release/harnesslite.exe
+            src-tauri/target/release/bundle/updater/latest.json
           generate_release_notes: true

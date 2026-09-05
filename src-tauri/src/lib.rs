@@ -62,6 +62,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let supervisor = Supervisor::new().expect("supervisor");
             commands::relay_supervisor_events(app.handle().clone(), Arc::clone(&supervisor));

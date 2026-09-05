@@ -1,7 +1,7 @@
 {
   "name": "harnesslite",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "HarnessLite is a native desktop shell for DeepSeek Harness",
   "license": "MIT",
   "packageManager": "pnpm@11.7.0",

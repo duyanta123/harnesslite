@@ -4,7 +4,7 @@
  * portable executable, and the installer must name the tag being released.
  * Cheap checks that keep an empty release from shipping.
  */
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -36,6 +36,31 @@ if (!existsSync(portable)) failures.push('portable harnesslite.exe missing from 
 else {
   const bytes = statSync(portable).size
   if (bytes < 1_000_000) failures.push(`portable exe implausibly small (${bytes} bytes)`)
+}
+
+// A tagged release is the updater's fuel: without the signed feed and its
+// signature file, every installed shell keeps running this version forever.
+const updaterJson = join(root, 'src-tauri', 'target', 'release', 'bundle', 'updater', 'latest.json')
+if (expectedTag) {
+  if (!existsSync(updaterJson)) {
+    failures.push('updater latest.json missing — the manifest step did not run')
+  } else {
+    try {
+      const manifest = JSON.parse(readFileSync(updaterJson, 'utf8'))
+      const platform = manifest.platforms?.['windows-x86_64']
+      if (manifest.version !== expectedTag.replace(/^v/, '')) {
+        failures.push(`updater manifest version ${manifest.version} does not match ${expectedTag}`)
+      }
+      if (!platform?.signature) failures.push('updater manifest has no windows-x86_64 signature')
+      if (!platform?.url?.startsWith('https://')) failures.push('updater manifest URL is not https')
+    } catch (cause) {
+      failures.push(`updater latest.json is not valid JSON: ${cause.message}`)
+    }
+  }
+  const signatures = existsSync(nsis)
+    ? readdirSync(nsis).filter((name) => name.endsWith('.sig'))
+    : []
+  if (!signatures.length) failures.push('no .sig file beside the installer — the build ran unsigned')
 }
 
 if (failures.length) {

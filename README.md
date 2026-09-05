@@ -22,7 +22,7 @@
 
 从 [GitHub Releases](https://github.com/duyanta123/harnesslite/releases) 下载：
 
-- `HarnessLite_0.1.1_x64-setup.exe` — NSIS 安装包（推荐）
+- `HarnessLite_0.1.2_x64-setup.exe` — NSIS 安装包（推荐）
 - `harnesslite.exe` — 免安装绿色版
 
 首次运行需联网安装 Harness 运行时（内置 Node 下载 + 一次 npm 安装），之后离线可用。未签名构建首次运行会有 SmartScreen 提示：**更多信息 → 仍要运行**。
