@@ -156,9 +156,10 @@ pub fn launch_plan() -> Result<LaunchPlan> {    let environment = environment();
         patches: integration_patch().into_iter().collect(),
         workspace: environment.workspace,
         host: BIND_HOST.to_string(),
-        // An OS-assigned port cannot collide and cannot be guessed from
-        // outside; the readiness line decides where the webview points.
-        port: 0,
+        // A port the user fixed in settings wins; otherwise an OS-assigned one
+        // that cannot collide and cannot be guessed from outside. Either way
+        // the readiness line decides where the webview points.
+        port: crate::startup::harness_port().unwrap_or(0),
         environment: Default::default(),
     })
 }

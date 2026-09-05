@@ -11,6 +11,7 @@
 pub mod composition;
 pub mod harness;
 pub mod node;
+pub mod terminal;
 
 /// Workspace version of the HarnessLite shell this crate belongs to.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -19,6 +19,8 @@ pub enum Error {
     #[error("{0}")]
     Harness(String),
     #[error("{0}")]
+    Terminal(String),
+    #[error("{0}")]
     Contract(String),
     #[error("{0}")]
     Store(String),

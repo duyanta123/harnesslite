@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::{Arc, Mutex};
 
 use hd_runtime::harness::supervisor::Supervisor;
+use hd_runtime::terminal::Terminals;
 
 /// The one desktop link waiting for a frame to hand itself to.
 ///
@@ -30,6 +31,9 @@ impl PendingLink {
 /// Application-wide state handed to every command.
 pub struct AppState {
     pub supervisor: Arc<Supervisor>,
+    /// Every open shell, guarded independently of the supervisor: stopping the
+    /// harness must never take the user's terminals down with it.
+    pub terminals: Arc<Terminals>,
     /// Set while an install is running, so a second click cannot start another
     /// npm against the same directory.
     pub installing: AtomicBool,
@@ -45,6 +49,7 @@ impl AppState {
     pub fn new(supervisor: Arc<Supervisor>) -> Self {
         Self {
             supervisor,
+            terminals: Terminals::new().expect("terminal registry"),
             installing: AtomicBool::new(false),
             provisioning: AtomicBool::new(false),
             boots: AtomicU32::new(0),

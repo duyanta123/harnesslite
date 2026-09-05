@@ -17,6 +17,7 @@ pub mod atomic;
 pub mod contract;
 pub mod error;
 pub mod paths;
+pub mod presets;
 pub mod plugins;
 pub mod profiles;
 pub mod projects;

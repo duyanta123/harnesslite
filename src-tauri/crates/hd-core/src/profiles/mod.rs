@@ -789,6 +789,70 @@ pub fn recovery_acknowledge() -> Result<()> {
     selection::acknowledge()
 }
 
+/// The failed profile's active third-party plugins, for the recovery centre.
+///
+/// A candidate is a dependency the profile actively bundles, is not core
+/// (`@deepseek-ai/*`) or the runtime's own integration seam, and is not
+/// already switched off — the user is being offered levers that do something.
+pub fn recovery_plugins() -> Vec<String> {
+    let Some(notice) = selection::notice() else {
+        return Vec::new();
+    };
+    let Some(manifest) = pkg::read_manifest(&paths::profile_dir(&notice.failed_profile)) else {
+        return Vec::new();
+    };
+    let dependencies = pkg::manifest::dependencies(&manifest);
+    let bundles = pkg::manifest::bundles(&manifest);
+    let switched_off: BTreeSet<_> = switches::switched_off(&notice.failed_profile).into_iter().collect();
+
+    dependencies
+        .keys()
+        .filter(|name| {
+            bundles.iter().any(|bundle| bundle == *name)
+                && !name.starts_with("@deepseek-ai/")
+                && name.as_str() != crate::contract::INTEGRATION_PACKAGE
+                && !switched_off.contains(*name)
+        })
+        .cloned()
+        .collect()
+}
+
+/// Switch one recovery candidate off in the failed profile.
+///
+/// `generation` must be the notice the user is reading. A stale generation
+/// means the recovery the dialog describes already ended; answering it would
+/// disable a plugin in a profile that may since have been repaired.
+pub fn recovery_disable_plugin(plugin: &str, generation: &str) -> Result<()> {
+    let notice = require_recovery(generation)?;
+    switches::disable(&notice.failed_profile, plugin)
+}
+
+/// Retry the failed profile: make it the pending candidate again.
+///
+/// The next start serves it; if it fails again the same containment rolls it
+/// back and the notice is renewed with a fresh generation.
+pub fn recovery_retry(generation: &str) -> Result<()> {
+    let notice = require_recovery(generation)?;
+    selection::choose(&notice.failed_profile)
+}
+
+/// The live notice, if it is still the one the caller answered.
+fn require_recovery(
+    generation: &str,
+) -> Result<selection::RecoveryNotice> {
+    let Some(notice) = selection::notice() else {
+        return Err(Error::Profile(
+            "the recovery notice has already been acknowledged".into(),
+        ));
+    };
+    if notice.generation != generation {
+        return Err(Error::Profile(
+            "that recovery notice is out of date; reload the recovery centre".into(),
+        ));
+    }
+    Ok(notice)
+}
+
 /// A name that is a profile on this machine, or a sentence saying it is not.
 fn expect_profile(name: &str) -> Result<String> {
     if !is_name(name) {

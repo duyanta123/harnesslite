@@ -25,6 +25,11 @@ reqwest = { version = "0.13", default-features = false, features = [
 ] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 sha2 = "0.10"
+# A real pty, so the shell in the terminal pane believes it is talking to a
+# terminal — line editing, colour, Ctrl-C and progress bars all depend on that,
+# and a plain piped stdio gets none of them. ConPTY on Windows, forkpty
+# elsewhere, behind one API. This is wezterm's own pty layer.
+portable-pty = "0.9"
 # flate2 arrives through zip's `deflate-flate2` with its backend features left
 # off, and a backend is not optional — so this crate names one explicitly. The
 # pure-Rust `rust_backend` is the choice that stays identical on every platform.

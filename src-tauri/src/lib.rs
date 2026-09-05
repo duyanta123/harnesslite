@@ -6,8 +6,13 @@
 //! — domain logic lives in `hd-core`, process lifecycle in `hd-runtime`.
 
 mod commands;
+mod presets;
+mod profiles_cmd;
 mod runtime_env;
+mod sessions;
 mod state;
+mod startup;
+mod terminal;
 mod window_state;
 
 use std::sync::Arc;
@@ -29,7 +34,23 @@ fn focus_existing_window(app: &tauri::AppHandle) {
 }
 
 pub fn run() {
+    // The summon shortcut is registered once here rather than through the
+    // plugin's dynamic API: one accelerator, one behaviour — bring the window
+    // back, wherever the user is.
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        focus_existing_window(app);
+                    }
+                })
+                .build(),
+        )
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(tauri_plugin_single_instance::init(|app, _arguments, _cwd| {
             focus_existing_window(app)
         }))
@@ -42,6 +63,15 @@ pub fn run() {
             let supervisor = Supervisor::new().expect("supervisor");
             commands::relay_supervisor_events(app.handle().clone(), Arc::clone(&supervisor));
             app.manage(AppState::new(supervisor));
+
+            // One shelf of sessions, shared by every window: read-only over
+            // `~/.dsh/sessions`, cached and decoded here.
+            app.manage(hd_core::sessions::Library::at(
+                hd_core::paths::sessions_dir(),
+            ));
+
+            // The stored summon accelerator, if the user chose one.
+            startup::register_saved(app.handle());
 
             // Restore the placement the user left the window in, if there was
             // one; the conf-file defaults cover the first run.
@@ -95,6 +125,39 @@ pub fn run() {
             commands::harness_stop,
             commands::harness_install,
             commands::node_provision,
+            terminal::terminal_open,
+            terminal::terminal_write,
+            terminal::terminal_resize,
+            terminal::terminal_close,
+            terminal::terminal_list,
+            sessions::session_roster,
+            sessions::session_search,
+            sessions::session_read,
+            sessions::session_export,
+            sessions::session_save,
+            profiles_cmd::profile_roster,
+            profiles_cmd::profile_recovery_notice,
+            profiles_cmd::profile_recovery_acknowledge,
+            profiles_cmd::profile_recovery_disable_plugin,
+            profiles_cmd::profile_recovery_retry,
+            profiles_cmd::profile_select,
+            profiles_cmd::profile_create,
+            profiles_cmd::profile_duplicate,
+            profiles_cmd::profile_rename,
+            profiles_cmd::profile_remove,
+            profiles_cmd::profile_compare,
+            profiles_cmd::profile_export,
+            profiles_cmd::profile_declaration,
+            profiles_cmd::profile_import,
+            presets::preset_roster,
+            presets::preset_choose,
+            startup::startup_state,
+            startup::startup_autostart,
+            startup::startup_shortcut,
+            startup::startup_notification,
+            startup::startup_notification_test,
+            startup::startup_log_level,
+            startup::startup_harness_port,
             commands::desktop_offer,
             commands::desktop_notify,
             commands::desktop_attention,
