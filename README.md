@@ -22,14 +22,10 @@
 
 从 [GitHub Releases](https://github.com/duyanta123/harnesslite/releases) 下载：
 
-- `HarnessLite_0.1.0_x64-setup.exe` — NSIS 安装包（推荐）
+- `HarnessLite_0.1.1_x64-setup.exe` — NSIS 安装包（推荐）
 - `harnesslite.exe` — 免安装绿色版
 
 首次运行需联网安装 Harness 运行时（内置 Node 下载 + 一次 npm 安装），之后离线可用。未签名构建首次运行会有 SmartScreen 提示：**更多信息 → 仍要运行**。
-
-## 从 HarnessDeck 迁移 / Migrating from HarnessDeck
-
-首次启动时自动检测旧 `%LOCALAPPDATA%\harnessdeck` 数据：项目、Profile 选择与自定义插件源静默迁入（`~/.dsh` 凭据与会话天然共用）。两个应用可共存，但请避免同时操作 Profile 层。
 
 ## Development / 开发
 

@@ -1615,7 +1615,7 @@ dependencies = [
 
 [[package]]
 name = "harnesslite"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dirs 6.0.0",
  "flate2",
@@ -1668,7 +1668,7 @@ checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
 name = "hd-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dirs 6.0.0",
  "ruzstd",
@@ -1682,7 +1682,7 @@ dependencies = [
 
 [[package]]
 name = "hd-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "flate2",
  "hd-core",
@@ -2491,7 +2491,7 @@ dependencies = [
 
 [[package]]
 name = "node-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dirs 6.0.0",
  "proc-guard",
@@ -3072,7 +3072,7 @@ checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
 
 [[package]]
 name = "proc-guard"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "libc",
  "tokio",
