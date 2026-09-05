@@ -26,16 +26,17 @@ fn source_dir() -> PathBuf {
 pub fn import_once() {
     let target = paths::app_data_dir();
     let source = source_dir();
-    if !source.is_dir() || target.join("projects.json").exists() {
+    if !source.is_dir() || target.join(".imported").exists() {
         return;
     }
-    if let Ok(mut note) = crate::state::import_log() {
-        note.push('i');
-        // Marker file: the import ran, so a later harnessdeck install cannot
-        // resurrect data this shell has since replaced.
-        let _ = std::fs::create_dir_all(&target);
-        let _ = std::fs::write(target.join(".imported"), "from harnessdeck\n");
+    // Marker file: the import ran, so a later HarnessDeck install cannot
+    // resurrect data this shell has since replaced. Gated on projects.json
+    // too: a shell that already has its own projects has its own truth.
+    if target.join("projects.json").exists() {
+        return;
     }
+    let _ = std::fs::create_dir_all(&target);
+    let _ = std::fs::write(target.join(".imported"), "from harnessdeck\n");
 
     copy_if_absent(&source.join("projects.json"), &target.join("projects.json"));
     copy_if_absent(&source.join("profile.json"), &target.join("profile.json"));
