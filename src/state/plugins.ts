@@ -24,6 +24,7 @@ import type {
   PluginListing,
   PluginSort,
   PluginState,
+  PluginUpdate,
 } from '@/lib/ipc'
 
 interface PluginStore {
@@ -56,6 +57,10 @@ interface PluginStore {
   /** The package name a change is running against, or null when idle. */
   working: string | null
   error: string | null
+  /** Newer registry versions found by the last check, keyed by package name. */
+  updates: Record<string, PluginUpdate>
+  /** An update check is running. */
+  checkingUpdates: boolean
 
   refresh: () => Promise<void>
   search: (
@@ -77,6 +82,8 @@ interface PluginStore {
   remove: (name: string) => Promise<void>
   /** Take an installed plugin out of the layer stack, or put it back. */
   toggle: (name: string, enabled: boolean) => Promise<void>
+  /** Ask the registry which installed packages have a newer version. */
+  checkUpdates: () => Promise<void>
   /** Read a picked archive, so its package can be named before it is installed. */
   inspect: (path: string) => Promise<ArchivePackage | null>
   /** Install from an archive already read by `inspect`. */
@@ -89,6 +96,13 @@ let generation = 0
 let previewGeneration = 0
 /** A source or profile mutation makes an older combined refresh stale. */
 let stateGeneration = 0
+
+/**
+ * The native market runs one operation at a time and declines the rest with an
+ * error, so searches queue here: a remount — development mode runs every mount
+ * effect twice — or a fast typist must overlap into a failure dialog.
+ */
+let searchQueue: Promise<void> = Promise.resolve()
 
 type Write = (partial: Partial<PluginStore>) => void
 
@@ -106,6 +120,19 @@ const failed = (set: Write, cause: unknown): void => {
   })
 }
 
+/**
+ * Record a failure of an operation the user did not ask for.
+ *
+ * The market panel searches the moment it opens and rereads on every visit;
+ * those fail on a flaky network through no act of the user, and a modal that
+ * outlives the panel — still standing over the remote pane, say — blames
+ * somebody for an action they never took. The panel's own error strip is the
+ * whole story; only an operation the user actually triggered may interrupt.
+ */
+const failedQuietly = (set: Write, cause: unknown): void => {
+  set({ error: typeof cause === 'string' ? cause : describe(cause) })
+}
+
 /** Whether a detail answer still belongs to the item the rail is showing. */
 const isSelected = (state: PluginStore, name: string, sourceId: string, version: string): boolean =>
   state.selected === name && state.selectedSource === sourceId && state.selectedVersion === version
@@ -120,7 +147,9 @@ const isSelected = (state: PluginStore, name: string, sourceId: string, version:
  */
 const landed = (set: Write, profile: PluginState): void => {
   ++stateGeneration
-  set({ profile })
+  // The installed set just changed, so the last update check describes a
+  // roster that no longer is one.
+  set({ profile, updates: {} })
   void ipc.announce('profiles')
 }
 
@@ -148,6 +177,8 @@ export const usePlugins = create<PluginStore>((set, get) => ({
   checkingSource: null,
   working: null,
   error: null,
+  updates: {},
+  checkingUpdates: false,
 
   refresh: async () => {
     if (get().working || get().sourceWorking) return
@@ -156,34 +187,38 @@ export const usePlugins = create<PluginStore>((set, get) => ({
       const [profile, sources] = await Promise.all([ipc.pluginState(), ipc.pluginSources()])
       if (mine === stateGeneration) set({ profile, sources, error: null })
     } catch (cause) {
-      if (mine === stateGeneration) failed(set, cause)
+      if (mine === stateGeneration) failedQuietly(set, cause)
     }
   },
 
-  search: async (query, category, sort, page, refresh = false) => {
-    const mine = ++generation
-    set({ searching: true, error: null })
-    try {
-      const answer = await ipc.pluginSearch(query, category, sort, page, refresh)
-      if (mine === generation) {
-        set({
-          results: answer.items,
-          categories: answer.categories,
-          total: answer.total,
-          page: answer.page,
-          pageSize: answer.pageSize,
-          hasMore: answer.hasMore,
-          indexedAt: answer.indexedAt,
-        })
+  search: (query, category, sort, page, refresh = false) => {
+    const run = async () => {
+      const mine = ++generation
+      set({ searching: true, error: null })
+      try {
+        const answer = await ipc.pluginSearch(query, category, sort, page, refresh)
+        if (mine === generation) {
+          set({
+            results: answer.items,
+            categories: answer.categories,
+            total: answer.total,
+            page: answer.page,
+            pageSize: answer.pageSize,
+            hasMore: answer.hasMore,
+            indexedAt: answer.indexedAt,
+          })
+        }
+      } catch (cause) {
+        if (mine === generation) {
+          failedQuietly(set, cause)
+          set({ results: [], total: 0, hasMore: false })
+        }
+      } finally {
+        if (mine === generation) set({ searching: false })
       }
-    } catch (cause) {
-      if (mine === generation) {
-        failed(set, cause)
-        set({ results: [], total: 0, hasMore: false })
-      }
-    } finally {
-      if (mine === generation) set({ searching: false })
     }
+    searchQueue = searchQueue.then(run, run)
+    return searchQueue
   },
 
   select: async (name, sourceId = 'npm', version = 'latest') => {
@@ -483,6 +518,22 @@ export const usePlugins = create<PluginStore>((set, get) => ({
       // sentence Rust wrote about it says which file and why.
       failed(set, cause)
       return null
+    }
+  },
+
+  checkUpdates: async () => {
+    if (get().checkingUpdates || get().working !== null) return
+    set({ checkingUpdates: true, error: null })
+    try {
+      const found = await ipc.pluginCheckUpdates()
+      set({ updates: Object.fromEntries(found.map((update) => [update.name, update])) })
+    } catch (cause) {
+      // The check is one button press among many; its failure lives in the
+      // panel's error strip rather than a modal.
+      failedQuietly(set, cause)
+      set({ updates: {} })
+    } finally {
+      set({ checkingUpdates: false })
     }
   },
 

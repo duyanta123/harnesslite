@@ -10,11 +10,12 @@ mod diagnostics;
 mod plugins;
 mod presets;
 mod profiles_cmd;
+mod projects_cmd;
 mod remote;
 mod runtime_env;
 mod sessions;
-mod state;
 mod startup;
+mod state;
 mod terminal;
 mod window_state;
 
@@ -132,6 +133,14 @@ pub fn run() {
             commands::harness_stop,
             commands::harness_install,
             commands::node_provision,
+            commands::node_select,
+            commands::workspace_inspect,
+            projects_cmd::projects_list,
+            projects_cmd::projects_add,
+            projects_cmd::projects_select,
+            projects_cmd::projects_remove,
+            projects_cmd::projects_rename,
+            projects_cmd::projects_bind_profile,
             terminal::terminal_open,
             terminal::terminal_write,
             terminal::terminal_resize,
@@ -157,6 +166,7 @@ pub fn run() {
             profiles_cmd::profile_declaration,
             profiles_cmd::profile_import,
             plugins::plugin_state,
+            plugins::plugin_check_updates,
             plugins::plugin_recovery_notice,
             plugins::plugin_recovery_acknowledge,
             plugins::plugin_recovery_retry,

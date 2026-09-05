@@ -8,6 +8,7 @@ import {
   Folder,
   FolderPlus,
   Pencil,
+  PlugZap,
   Trash2,
   Keyboard,
   Network,
@@ -23,6 +24,7 @@ import {
 
 import { Button } from '@/components/Button'
 import { PaneHeader } from '@/components/PaneHeader'
+import { PluginMarket } from '@/components/PluginMarket'
 import { Select } from '@/components/Select'
 import { Switch } from '@/components/Switch'
 import { ThemeSwitch } from '@/components/ThemeSwitch'
@@ -34,6 +36,7 @@ import { ask } from '@/state/dialog'
 import { useProfiles } from '@/state/profiles'
 import { addProjectWorkspace, switchProject, useProjects } from '@/state/projects'
 import { usePresentation } from '@/state/presentation'
+import { useSettingsNav, type SettingsSection } from '@/state/settings'
 
 /**
  * Settings that outlive the window.
@@ -44,6 +47,10 @@ import { usePresentation } from '@/state/presentation'
  * login, which key reaches it from anywhere, and which palette it paints. So
  * this pane is deliberately short, and it stays short — a settings screen that
  * collects every switch in the app is the place options go to be lost.
+ *
+ * The plugin market is the one thing hosted here that manages work rather than
+ * the machine: it has no surface of its own to sit beside, and a feature
+ * reachable only through the palette is a feature people never learn exists.
  *
  * The first two are off until asked for. A login item nobody agreed to is the
  * reason people distrust installers, and a global key is taken away from every
@@ -74,7 +81,10 @@ export function SettingsPane() {
   // under the label, where there is room for a sentence — a button in the middle
   // of listening for a keystroke is the last place to explain itself.
   const [recording, setRecording] = useState(false)
-  const [section, setSection] = useState<SectionId>('projects')
+  // The nav belongs to the store, not the pane: it outlives the sheet being
+  // closed, and a menu elsewhere can name the section to land on.
+  const section = useSettingsNav((state) => state.section)
+  const visitSection = useSettingsNav((state) => state.visit)
 
   const ready = state !== null
   const occupied = Boolean(state?.shortcut) && state?.held === false
@@ -101,7 +111,7 @@ export function SettingsPane() {
                 key={entry.id}
                 type="button"
                 aria-current={chosen ? 'true' : undefined}
-                onClick={() => setSection(entry.id)}
+                onClick={() => visitSection(entry.id)}
                 className={[
                   'relative flex h-9 shrink-0 cursor-pointer items-center gap-2.5 rounded-control px-2.5 text-left transition-colors duration-100',
                   chosen ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/55 hover:text-text',
@@ -127,6 +137,12 @@ export function SettingsPane() {
           })}
         </nav>
 
+        {/* The plugin market is a workbench, not a form: it takes the whole
+            content area and brings its own header, so it stays outside the
+            padded column the four form sections share. */}
+        {section === 'plugins' && <PluginMarket />}
+
+        {section !== 'plugins' && (
         <div className="min-h-0 flex-1 overflow-y-auto bg-canvas px-6 py-6">
           {/* Keyed so a section switch replays the settle animation, the same
               contract the workbench uses between panes. */}
@@ -327,13 +343,14 @@ export function SettingsPane() {
             )}
           </div>
         </div>
+        )}
       </div>
     </section>
   )
 }
 
-/** The four areas settings is split into, in reading order. */
-type SectionId = 'projects' | 'behavior' | 'service' | 'notifications'
+/** The areas settings is split into, in reading order. */
+type SectionId = SettingsSection
 
 const SECTIONS: {
   id: SectionId
@@ -345,6 +362,7 @@ const SECTIONS: {
   { id: 'behavior', icon: SlidersHorizontal, label: 'settings.section.behavior', hint: 'settings.section.behaviorHint' },
   { id: 'service', icon: Server, label: 'settings.section.service', hint: 'settings.section.serviceHint' },
   { id: 'notifications', icon: BellRing, label: 'settings.section.notifications', hint: 'settings.section.notificationsHint' },
+  { id: 'plugins', icon: PlugZap, label: 'nav.plugins', hint: 'plugins.subtitle' },
 ]
 /**
  * Project registry settings.

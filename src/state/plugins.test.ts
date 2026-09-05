@@ -251,3 +251,32 @@ describe('plugin catalog source changes', () => {
     })
   })
 })
+
+describe('checkUpdates', () => {
+  it('records what the registry answered, keyed by package name', async () => {
+    vi.mocked(ipc.pluginCheckUpdates).mockResolvedValue([
+      { name: 'dsh-one', installed: '0.1.0', latest: '0.2.0' },
+    ])
+    usePlugins.setState({ checkingUpdates: false, working: null, updates: {} })
+
+    await usePlugins.getState().checkUpdates()
+
+    expect(usePlugins.getState().checkingUpdates).toBe(false)
+    expect(usePlugins.getState().updates).toEqual({
+      'dsh-one': { name: 'dsh-one', installed: '0.1.0', latest: '0.2.0' },
+    })
+  })
+
+  it('fails into the panel strip, clearing a stale answer', async () => {
+    vi.mocked(ipc.pluginCheckUpdates).mockRejectedValue(new Error('offline'))
+    usePlugins.setState({ checkingUpdates: false, working: null, error: null })
+    usePlugins.setState({ updates: { stale: { name: 'stale', installed: '1.0.0', latest: '2.0.0' } } })
+
+    await usePlugins.getState().checkUpdates()
+
+    expect(usePlugins.getState().checkingUpdates).toBe(false)
+    expect(usePlugins.getState().updates).toEqual({})
+    expect(usePlugins.getState().error).toContain('offline')
+    expect(useDialog.getState().pending).toBeNull()
+  })
+})

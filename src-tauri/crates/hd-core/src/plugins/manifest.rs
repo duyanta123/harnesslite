@@ -23,6 +23,10 @@ pub struct InstalledPlugin {
     /// What an install would ask for: `name@range` for installed packages, the
     /// bare name for bundles the profile came with.
     pub spec: String,
+    /// The package's patch is composed right now: on the profile's bundle list
+    /// and not switched off. Off that list there is nothing to switch — a
+    /// library the harness composes nothing from.
+    pub active: bool,
     /// Recorded in the profile's disabled-plugin switches.
     pub disabled: bool,
     /// Came with the profile rather than being installed into it.
@@ -34,6 +38,14 @@ pub struct InstalledPlugin {
 pub fn read_manifest(dir: &Path) -> Option<Value> {
     let body = std::fs::read(dir.join(MANIFEST)).ok()?;
     serde_json::from_slice(&body).ok()
+}
+
+/// The version of a package actually sitting in the profile's node_modules —
+/// the resolved one, which a dependency range does not give.
+pub fn installed_version(profile_dir: &Path, name: &str) -> Option<String> {
+    let body = std::fs::read(profile_dir.join("node_modules").join(name).join(MANIFEST)).ok()?;
+    let value: Value = serde_json::from_slice(&body).ok()?;
+    value.get("version")?.as_str().map(str::to_string)
 }
 
 /// The layer list a manifest records, in the order it records it.
@@ -72,6 +84,11 @@ pub fn dependencies(manifest: &Value) -> BTreeMap<String, String> {
 /// switches applied.
 pub fn list(manifest: &Value, disabled: &[String]) -> Vec<InstalledPlugin> {
     let installed = dependencies(manifest);
+    // The layer stack is the profile's own bundle list: a package on it has
+    // its patch composed, one off it contributes nothing.
+    let stack_list = bundles(manifest);
+    let stack: std::collections::HashSet<&str> =
+        stack_list.iter().map(String::as_str).collect();
     let mut disabled: std::collections::HashSet<&String> = disabled.iter().collect();
 
     let mut entries: Vec<InstalledPlugin> = Vec::new();
@@ -84,6 +101,7 @@ pub fn list(manifest: &Value, disabled: &[String]) -> Vec<InstalledPlugin> {
                 let is_disabled = disabled.remove(&bundle);
                 entries.push(InstalledPlugin {
                     spec: format!("{bundle}@{range}"),
+                    active: !is_disabled,
                     disabled: is_disabled,
                     builtin: false,
                     name: bundle,
@@ -91,6 +109,7 @@ pub fn list(manifest: &Value, disabled: &[String]) -> Vec<InstalledPlugin> {
             }
             None => entries.push(InstalledPlugin {
                 spec: bundle.clone(),
+                active: true,
                 disabled: false,
                 builtin: true,
                 name: bundle,
@@ -106,6 +125,7 @@ pub fn list(manifest: &Value, disabled: &[String]) -> Vec<InstalledPlugin> {
         entries.push(InstalledPlugin {
             name: name.clone(),
             spec: format!("{name}@{range}"),
+            active: stack.contains(name.as_str()) && !is_disabled,
             disabled: is_disabled,
             builtin: false,
         });
@@ -238,10 +258,26 @@ mod tests {
         assert_eq!(listed.len(), 2);
         assert!(listed[0].builtin);
         assert!(!listed[0].disabled);
+        assert!(listed[0].active);
         assert_eq!(listed[0].spec, "@deepseek-ai/dsh-base");
         assert!(!listed[1].builtin);
         assert!(listed[1].disabled);
+        assert!(!listed[1].active);
         assert_eq!(listed[1].spec, "dsh-plugin-b@^1.2.0");
+    }
+
+    #[test]
+    fn an_installed_package_off_the_bundle_list_is_a_library() {
+        let mut manifest = sample();
+        add_dependency(&mut manifest, "dsh-lib", "^0.1.0").unwrap();
+        let listed = list(&manifest, &[]);
+        let library = listed
+            .iter()
+            .find(|plugin| plugin.name == "dsh-lib")
+            .expect("listed");
+        assert!(!library.active);
+        assert!(!library.disabled);
+        assert!(!library.builtin);
     }
 
     #[test]

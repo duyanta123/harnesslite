@@ -64,8 +64,8 @@ export interface LogLine {
  */
 export type HarnessEvent = ({ kind: 'status' } & Status) | ({ kind: 'log' } & LogLine)
 
-/** Channel `lib.rs` emits supervisor events on. */
-const EVENT_CHANNEL = 'harness://event'
+/** Channel the supervisor relay emits on — `contract::EVENT_HARNESS`. */
+export const EVENT_CHANNEL = 'harnesslite://harness'
 
 export const formatVersion = (version: NodeVersion): string =>
   `${version.major}.${version.minor}.${version.patch}`
@@ -121,8 +121,8 @@ export type NodeProgress =
   | { phase: 'extracting'; version: string }
   | { phase: 'installed'; version: string }
 
-/** Channel `node/commands.rs` reports install progress on. */
-const NODE_CHANNEL = 'node://progress'
+/** Channel the Node installer reports progress on — `contract::EVENT_NODE_PROGRESS`. */
+export const NODE_CHANNEL = 'harnesslite://node/progress'
 
 /**
  * Download and install a Node runtime into this application's own directory.
@@ -178,8 +178,8 @@ export interface RemoteStatus {
   refused: number
 }
 
-/** Channel `lib.rs` pokes when a remote connection opens or closes. */
-const REMOTE_CHANNEL = 'remote://changed'
+/** Channel the remote door pokes when it opens or closes — `contract::EVENT_REMOTE`. */
+export const REMOTE_CHANNEL = 'harnesslite://remote'
 
 export const remoteStatus = (): Promise<RemoteStatus> => invoke('remote_status')
 
@@ -202,10 +202,6 @@ export const remoteForget = (id: string): Promise<RemoteStatus> => invoke('remot
  */
 export const onRemoteChange = (handler: () => void): Promise<UnlistenFn> =>
   listen(REMOTE_CHANNEL, () => handler())
-
-/** Validate and remember the working directory used by the next Harness start. */
-export const workspaceSelect = (path: string): Promise<Environment['workspaceAdmission']> =>
-  invoke('workspace_select', { path })
 
 /** Inspect a candidate without changing the working directory for the next start. */
 export const workspaceInspect = (path: string): Promise<Environment['workspaceAdmission']> =>
@@ -449,6 +445,17 @@ export const pluginRemove = (name: string): Promise<PluginState> =>
 export const pluginSwitch = (name: string, enabled: boolean): Promise<PluginState> =>
   invoke('plugin_switch', { name, enabled })
 
+/** One installed package the registry serves a newer version of. */
+export interface PluginUpdate {
+  name: string
+  installed: string
+  latest: string
+}
+
+/** Check every registry-installed plugin against the registry's newest. */
+export const pluginCheckUpdates = (): Promise<PluginUpdate[]> =>
+  invoke('plugin_check_updates')
+
 /** A plugin archive on this machine, as its own manifest describes it. */
 export interface ArchivePackage {
   name: string
@@ -674,9 +681,9 @@ export interface TerminalExit {
   code: number | null
 }
 
-/** Channels `terminal/mod.rs` emits on. */
-const TERMINAL_OUTPUT = 'terminal://output'
-const TERMINAL_EXIT = 'terminal://exit'
+/** Channels the terminal emits on — `contract::EVENT_TERMINAL_{OUTPUT,EXIT}`. */
+export const TERMINAL_OUTPUT = 'harnesslite://terminal/output'
+export const TERMINAL_EXIT = 'harnesslite://terminal/exit'
 
 /**
  * Open a shell, sized to the pane that is about to show it.
@@ -881,8 +888,8 @@ export const windowOpen = (): Promise<void> => invoke('window_open')
  */
 export type Shared = 'theme' | 'profiles' | 'presentation' | 'projects'
 
-/** Channel the windows use to poke each other. */
-const SHARED_CHANNEL = 'shell://changed'
+/** Channel the windows use to poke each other — `contract::EVENT_SHARED_STATE`. */
+export const SHARED_CHANNEL = 'harnesslite://announce'
 
 /**
  * Say that a shared thing has changed.
@@ -923,8 +930,8 @@ export interface DesktopOffer {
   link: DesktopLink | null
 }
 
-/** Channel `desktop/mod.rs` forwards `harnesslite://` links on. */
-const LINK_CHANNEL = 'desktop://link'
+/** Channel deep links are forwarded on — `contract::EVENT_DESKTOP_LINK`. */
+export const LINK_CHANNEL = 'harnesslite://desktop/link'
 
 /**
  * Describe the desktop, and take any link that was waiting for a listener.

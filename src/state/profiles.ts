@@ -248,9 +248,13 @@ const resubject = (): void => void usePlugins.getState().refresh()
  * person, and it is what keeps this a signal rather than a second copy of the
  * roster travelling between windows.
  */
-export const subscribeToProfiles = (): Promise<() => void> =>
-  ipc.onSharedChange((subject) => {
+export const subscribeToProfiles = (): Promise<() => void> => {
+  // The first read happens here, not on the first announce: the title-bar
+  // profile chip is alive from the moment the window is.
+  void useProfiles.getState().refresh()
+  return ipc.onSharedChange((subject) => {
     if (subject !== 'profiles') return
     void useProfiles.getState().refresh()
     resubject()
   })
+}

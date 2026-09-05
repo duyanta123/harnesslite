@@ -101,6 +101,38 @@ pub async fn fetch_catalog(
     pkg::catalog::parse(&source, &body)
 }
 
+/// One exact registry answer for a package name, or None when the registry
+/// knows no such package.
+///
+/// The search endpoint ranks by popularity, and a fresh package loses to every
+/// established one even when the query is its full name; a query shaped like
+/// one exact name therefore also gets this direct lookup, to pin to the top of
+/// whatever the relevance search brings back.
+pub async fn exact_entry(
+    client: &Client,
+    name: &str,
+) -> Result<Option<pkg::catalog::CatalogEntry>> {
+    let url = format!("https://registry.npmjs.org/{}/latest", urlencode(name));
+    let response = client
+        .get(&url)
+        .timeout(DETAIL_CEILING)
+        .header("user-agent", user_agent())
+        .send()
+        .await
+        .map_err(|cause| Error::Plugin(format!("{url} could not be reached: {cause}")))?;
+    if response.status().as_u16() == 404 {
+        return Ok(None);
+    }
+    if !response.status().is_success() {
+        return Err(Error::Plugin(format!("{url} answered {}", response.status())));
+    }
+    let body = response
+        .text()
+        .await
+        .map_err(|cause| Error::Plugin(format!("{url} sent an unreadable reply: {cause}")))?;
+    pkg::catalog::npm_manifest_entry(name, &body).map(Some)
+}
+
 /// Probe one source and report what came back, within the dialog's patience.
 pub async fn health(
     client: &Client,

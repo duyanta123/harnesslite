@@ -33,7 +33,7 @@ import { Segmented } from '@/components/Segmented'
 import { count, day, filesize } from '@/lib/format'
 import { t } from '@/lib/i18n'
 import * as ipc from '@/lib/ipc'
-import type { CatalogSource, InstalledPlugin, PluginListing, PluginSort } from '@/lib/ipc'
+import type { CatalogSource, InstalledPlugin, PluginListing, PluginSort, PluginUpdate } from '@/lib/ipc'
 import { ask } from '@/state/dialog'
 import { useHarness } from '@/state/harness'
 import { isInstalled, usePlugins } from '@/state/plugins'
@@ -91,6 +91,9 @@ export function PluginMarket() {
   const toggle = usePlugins((state) => state.toggle)
   const inspect = usePlugins((state) => state.inspect)
   const bringIn = usePlugins((state) => state.bringIn)
+  const updates = usePlugins((state) => state.updates)
+  const checkingUpdates = usePlugins((state) => state.checkingUpdates)
+  const checkUpdates = usePlugins((state) => state.checkUpdates)
 
   const [tab, setTab] = useState<Tab>('discover')
   const [query, setQuery] = useState('')
@@ -199,6 +202,24 @@ export function PluginMarket() {
             value={tab}
             onChange={setTab}
           />
+
+          {/* One click answers "is any of this stale?", across every registry
+              install at once. The rows carry the answer; this carries the ask. */}
+          <button
+            type="button"
+            title={t('plugins.updates.check')}
+            aria-label={t('plugins.updates.check')}
+            onClick={() => void checkUpdates()}
+            disabled={checkingUpdates || working !== null}
+            className="grid size-[30px] shrink-0 cursor-pointer place-items-center rounded-control border border-line-strong bg-surface-2 text-muted transition duration-100 enabled:hover:text-text enabled:active:brightness-95 disabled:opacity-45"
+          >
+            <RefreshCw
+              size={13}
+              strokeWidth={2.2}
+              aria-hidden="true"
+              className={checkingUpdates ? 'animate-spin' : ''}
+            />
+          </button>
 
           {/* Beside the tabs rather than inside either one: this installs, so it
               belongs with discovery, but it is the only way in on a machine
@@ -400,6 +421,7 @@ export function PluginMarket() {
               searching={searching}
               selected={selected}
               working={working}
+              curated={activeSource?.id !== 'npm'}
               onOpen={(listing) => void select(listing.name, listing.sourceId, listing.version)}
               isInstalled={(name) => isInstalled(profile, name)}
             />
@@ -411,6 +433,7 @@ export function PluginMarket() {
               searching={searching}
               selected={selected}
               working={working}
+              curated={activeSource?.id !== 'npm'}
               onOpen={(listing) => void select(listing.name, listing.sourceId, listing.version)}
               isInstalled={() => false}
             />
@@ -419,6 +442,7 @@ export function PluginMarket() {
               plugins={installed}
               initialized={profile?.initialized ?? false}
               working={working}
+              updates={updates}
               onOpen={selectInstalled}
               onToggle={(name, on) => void toggle(name, on)}
               onRemove={(name) => void confirmRemove(name)}
@@ -513,6 +537,13 @@ function Sources({ sources, working, onSelect, onManage }: SourcesProps) {
                 <span className="mt-1 block truncate font-mono text-[10px] text-faint">
                   {source.endpoint ?? source.kind}
                 </span>
+                {/* The one fact a snapshot source owes its reader up front: a
+                    search here filters this list, it never reaches npm. */}
+                {source.id !== 'npm' && (
+                  <span className="mt-1 block text-[10.5px] leading-relaxed text-faint">
+                    {t('plugins.sources.curatedNote')}
+                  </span>
+                )}
               </span>
               <span className={source.active ? 'text-[11px] text-ok' : 'text-[11px] text-faint'}>
                 {source.active ? t('plugins.sources.active') : t('plugins.sources.use')}
@@ -532,14 +563,28 @@ interface DiscoverProps {
   searching: boolean
   selected: string | null
   working: string | null
+  /** The active source is a curated snapshot: its search never reaches npm. */
+  curated: boolean
   onOpen: (listing: PluginListing) => void
   isInstalled: (name: string) => boolean
 }
 
-function Discover({ results, searching, selected, working, onOpen, isInstalled }: DiscoverProps) {
+function Discover({
+  results,
+  searching,
+  selected,
+  working,
+  curated,
+  onOpen,
+  isInstalled,
+}: DiscoverProps) {
   if (results.length === 0) {
     return (
-      <Empty icon={Package} message={searching ? t('plugins.searching') : t('plugins.noResults')} />
+      <Empty
+        icon={Package}
+        message={searching ? t('plugins.searching') : t('plugins.noResults')}
+        hint={!searching && curated ? t('plugins.sources.curatedNote') : undefined}
+      />
     )
   }
 
@@ -662,12 +707,21 @@ interface InstalledProps {
   plugins: InstalledPlugin[]
   initialized: boolean
   working: string | null
+  updates: Record<string, PluginUpdate>
   onOpen: (plugin: InstalledPlugin) => void
   onToggle: (name: string, on: boolean) => void
   onRemove: (name: string) => void
 }
 
-function Installed({ plugins, initialized, working, onOpen, onToggle, onRemove }: InstalledProps) {
+function Installed({
+  plugins,
+  initialized,
+  working,
+  updates,
+  onOpen,
+  onToggle,
+  onRemove,
+}: InstalledProps) {
   if (plugins.length === 0) {
     return (
       <Empty
@@ -685,6 +739,7 @@ function Installed({ plugins, initialized, working, onOpen, onToggle, onRemove }
         // switch for it would promise something the harness would undo.
         const layered = plugin.active || plugin.disabled
         const busy = working === plugin.name
+        const update = updates[plugin.name]
 
         return (
           <li
@@ -725,6 +780,13 @@ function Installed({ plugins, initialized, working, onOpen, onToggle, onRemove }
                 )}
                 {plugin.builtin && <Badge tone="neutral">{t('plugins.builtin')}</Badge>}
                 {plugin.marketReceipt && <Badge tone="ok">{t('plugins.marketManaged')}</Badge>}
+                {/* The answer the check button asked for. The row itself opens
+                    the detail dialog, where installing is the update. */}
+                {update && (
+                  <Badge tone="brand">
+                    {t('plugins.updates.available', { version: update.latest })}
+                  </Badge>
+                )}
               </div>
             </div>
 

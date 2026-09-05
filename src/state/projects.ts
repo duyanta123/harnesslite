@@ -180,10 +180,13 @@ export async function addProjectWorkspace(path: string): Promise<boolean> {
  *
  * Subscribed for the lifetime of the window, because the title-bar project
  * switcher is never closed and has to stay true while another window adds or
- * removes a project.
+ * removes a project. The first read happens here too: the roster exists before
+ * any window has a reason to announce one.
  */
-export const subscribeToProjects = (): Promise<() => void> =>
-  ipc.onSharedChange((subject) => {
+export const subscribeToProjects = (): Promise<() => void> => {
+  void useProjects.getState().refresh()
+  return ipc.onSharedChange((subject) => {
     if (subject !== 'projects') return
     void useProjects.getState().refresh()
   })
+}

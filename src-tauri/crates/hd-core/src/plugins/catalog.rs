@@ -160,6 +160,37 @@ fn parse_npm(value: &Value) -> Result<Vec<CatalogEntry>> {
     Ok(entries)
 }
 
+/// One npm version manifest (`GET /<name>/latest`) as a catalog entry.
+///
+/// The exact-name lookup builds its answer here. The search endpoint ranks by
+/// popularity, so this is the path that lets a person typing a full package
+/// name find a package nobody else is using yet.
+pub fn npm_manifest_entry(name: &str, body: &str) -> Result<CatalogEntry> {
+    let value: Value = serde_json::from_str(body)
+        .map_err(|cause| Error::Plugin(format!("latest manifest is not valid JSON: {cause}")))?;
+    let version = value
+        .get("version")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if version.is_empty() {
+        return Err(Error::Plugin("latest manifest carries no version".into()));
+    }
+    Ok(CatalogEntry {
+        source: SourceId::Npm,
+        name: name.to_string(),
+        npm_name: Some(name.to_string()),
+        npm_spec: Some(format!("{name}@{version}")),
+        summary_en: plain_text(value.get("description").and_then(Value::as_str)),
+        summary_zh: None,
+        category: keywords(&value).into_iter().next(),
+        verified: true,
+        trust: TrustTier::BuiltinNpm,
+        installs: None,
+        stars: None,
+        downloads: None,
+    })
+}
+
 /// npm keywords, read as v1 read them: trimmed, bounded, stable order.
 fn keywords(package: &Value) -> Vec<String> {
     let values: Vec<&str> = match package.get("keywords") {
@@ -392,6 +423,28 @@ fn plain_text(value: Option<&str>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_latest_manifest_becomes_a_catalog_entry() {
+        let body = r#"{
+            "name": "dsh-local-telemetry",
+            "version": "0.1.0",
+            "description": "local-first telemetry",
+            "keywords": ["dsh-plugin", "telemetry"]
+        }"#;
+        let entry = npm_manifest_entry("dsh-local-telemetry", body).expect("entry");
+        assert_eq!(entry.name, "dsh-local-telemetry");
+        assert_eq!(entry.source, SourceId::Npm);
+        assert_eq!(entry.npm_spec.as_deref(), Some("dsh-local-telemetry@0.1.0"));
+        assert_eq!(entry.summary_en.as_deref(), Some("local-first telemetry"));
+        assert_eq!(entry.category.as_deref(), Some("dsh-plugin"));
+    }
+
+    #[test]
+    fn a_latest_manifest_without_a_version_is_refused() {
+        assert!(npm_manifest_entry("dsh-local-telemetry", "{}").is_err());
+        assert!(npm_manifest_entry("dsh-local-telemetry", "not json").is_err());
+    }
 
     const NPM_BODY: &str = r#"{
         "objects": [

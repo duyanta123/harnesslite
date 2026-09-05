@@ -222,6 +222,22 @@ async fn provision_managed(state: &AppState) -> Result<std::path::PathBuf> {
     Ok(path)
 }
 
+/// Pin one of the machine's discovered runtimes as the one the next Harness
+/// start runs on, until it disappears or a newer one is picked.
+#[tauri::command]
+pub async fn node_select(path: String) -> Result<node_runtime::NodeInstallation> {
+    // Discovery shells out to `node --version`; never on the main thread.
+    tauri::async_runtime::spawn_blocking(move || runtime_env::select_node(&path))
+        .await
+        .map_err(|cause| Error::Node(format!("runtime selection failed: {cause}")))?
+}
+
+/// Admission verdict for a candidate workspace, without moving anything.
+#[tauri::command]
+pub fn workspace_inspect(path: String) -> hd_core::validate::Admission {
+    hd_core::validate::inspect(std::path::Path::new(&path))
+}
+
 /* -------------------------------------------------------------------------- */
 /* Desktop service interface                                                  */
 /* -------------------------------------------------------------------------- */

@@ -84,7 +84,7 @@ export function Omni({
   return (
     <div
       role="presentation"
-      className="fixed inset-0 z-50 grid animate-fade place-items-start bg-canvas-deep/70 px-8 pt-[18vh] backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 grid animate-fade items-start justify-items-center bg-canvas-deep/70 px-8 pt-[18vh] backdrop-blur-[2px]"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}

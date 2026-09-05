@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use hd_runtime::harness::supervisor::LaunchPlan;
 use node_runtime::{NodeInstallation, Version};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use hd_core::contract;
 use hd_core::error::{Error, Result};
@@ -84,10 +84,7 @@ pub fn environment() -> Environment {
     // runtime it installed is chosen by exactly the same rule as one the user
     // installed — and shows up in the same list, labelled for what it is.
     let all_node_runtimes = node_runtime::discover_in(Some(&paths::managed_node_dir()));
-    let node = all_node_runtimes
-        .iter()
-        .find(|install| install.version >= node_runtime::MINIMUM_SUPPORTED)
-        .cloned();
+    let node = selected_node(&all_node_runtimes);
     let harness_entry = paths::harness_entry();
     let harness_version = runtime_version();
     let harness_installed = harness_entry.is_file() && harness_version.is_some();
@@ -113,6 +110,72 @@ pub fn environment() -> Environment {
         workspace,
         workspace_admission,
     }
+}
+
+/// One pinned runtime choice: the file is a single path, so removing the Node
+/// it names simply makes the pick fall back to the best supported runtime
+/// until something answers at that path again.
+#[derive(Debug, Serialize, Deserialize)]
+struct NodeSelection {
+    path: PathBuf,
+}
+
+/// The runtime the next Harness start runs on: the user's pick while it still
+/// qualifies, otherwise the newest supported one — the same rule the picker's
+/// list is ranked by, so a removed runtime degrades instead of breaking.
+fn selected_node(runtimes: &[NodeInstallation]) -> Option<NodeInstallation> {
+    let usable = |install: &NodeInstallation| install.version >= node_runtime::MINIMUM_SUPPORTED;
+    node_selection()
+        .and_then(|path| runtimes.iter().find(|install| install.path == path))
+        .filter(|install| usable(install))
+        .cloned()
+        .or_else(|| runtimes.iter().find(|install| usable(install)).cloned())
+}
+
+/// The pinned Node executable, if one was ever written.
+fn node_selection() -> Option<PathBuf> {
+    let body = std::fs::read(paths::node_selection_file()).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&body).ok()?;
+    let path = value.get("path")?.as_str()?.to_string();
+    (!path.is_empty()).then_some(PathBuf::from(path))
+}
+
+/// Validate and remember the runtime the next Harness start runs on.
+///
+/// The pick must be one of this machine's discovered runtimes — discovery is
+/// the only way onto the machine's payroll, and the Environment panel offers
+/// exactly that list — and it must still qualify today, not merely have once.
+pub fn select_node(path: &str) -> Result<NodeInstallation> {
+    let path = PathBuf::from(path);
+    let runtimes = node_runtime::discover_in(Some(&paths::managed_node_dir()));
+    let install = runtimes
+        .iter()
+        .find(|install| install.path == path)
+        .ok_or_else(|| {
+            Error::Node(format!(
+                "{} is not a Node runtime this machine can use",
+                path.display()
+            ))
+        })?;
+    if install.version < node_runtime::MINIMUM_SUPPORTED {
+        return Err(Error::Node(format!(
+            "Node {} is older than the minimum {} this shell can use",
+            install.version, node_runtime::MINIMUM_SUPPORTED
+        )));
+    }
+
+    let file = paths::node_selection_file();
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent).map_err(|cause| {
+            Error::Node(format!("{} could not be created: {cause}", parent.display()))
+        })?;
+    }
+    let body = serde_json::to_vec_pretty(&NodeSelection { path: path.clone() })
+        .map_err(|cause| Error::Node(format!("runtime choice could not be encoded: {cause}")))?;
+    hd_core::atomic::write(&file, body).map_err(|cause| {
+        Error::Node(format!("{} could not be committed: {cause}", file.display()))
+    })?;
+    Ok(install.clone())
 }
 
 /// Turn the current environment into a runnable launch, or say what is missing.

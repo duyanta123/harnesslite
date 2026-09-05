@@ -36,6 +36,115 @@ pub fn plugin_state() -> Result<PluginState> {
     state_of()
 }
 
+/// One installed package the registry serves a newer version of.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginUpdate {
+    pub name: String,
+    pub installed: String,
+    pub latest: String,
+}
+
+/// Every installed package the registry knows a newer version of.
+///
+/// Only registry-shaped specs are checked (`name@range`): a `file:` or `git:`
+/// install has no newer version to ask for, and a bundle came with the
+/// profile. The comparison runs against the version actually sitting in the
+/// profile's node_modules — the range a manifest records floats, and would
+/// call an untouched `^0.1.0` outdated the day 0.2.0 shipped. One package the
+/// registry will not answer for is skipped; a registry that answers for none
+/// of them is an error the user asked for by pressing the button.
+#[tauri::command]
+pub async fn plugin_check_updates(state: State<'_, AppState>) -> Result<Vec<PluginUpdate>> {
+    let _busy_guard = claim_market(&state)?;
+
+    let profile = hd_core::projects::active_profile().unwrap_or_else(hd_core::profiles::selected);
+    let dir = hd_core::paths::profile_dir(&profile);
+    let installed = state_of()?;
+    let client = client_of()?;
+
+    let mut updates: Vec<PluginUpdate> = Vec::new();
+    let mut checked = 0usize;
+    let mut failures = 0usize;
+    let mut last_failure: Option<String> = None;
+
+    for plugin in installed.plugins {
+        if plugin.builtin || !pkg::is_package_spec(&plugin.spec) {
+            continue;
+        }
+        // Scoped names keep their first `@`; the split lives at the last one.
+        let Some((name, _range)) = plugin.spec.rsplit_once('@') else {
+            continue;
+        };
+        let Some(current) = pkg::manifest::installed_version(&dir, &name) else {
+            continue;
+        };
+
+        checked += 1;
+        let latest = match hd_runtime::market::detail(&client, name, "latest").await {
+            Ok(detail) => detail.version,
+            Err(failure) => {
+                let text = failure.to_string();
+                // A package the registry has never heard of — private,
+                // renamed, published somewhere else entirely — is skipped the
+                // same as a file: install. Only a failure that could have hit
+                // every package counts against the check.
+                if text.contains("does not know") || text.contains("lists no") {
+                    continue;
+                }
+                failures += 1;
+                last_failure = Some(text);
+                continue;
+            }
+        };
+        if version_key(&latest) > version_key(&current) {
+            updates.push(PluginUpdate {
+                name: name.to_string(),
+                installed: current,
+                latest,
+            });
+        }
+    }
+
+    if checked > 0 && failures == checked {
+        // Every answer failed: the network, not the packages, is the story.
+        return Err(Error::Plugin(
+            last_failure.unwrap_or_else(|| "the registry could not be reached".into()),
+        ));
+    }
+
+    Ok(updates)
+}
+
+/// `1.2.3` as something orderable. Pre-release and build tags compare equal to
+/// their release — close enough to decide "is there a newer one" for a button
+/// that links to the detail dialog, which shows the exact versions.
+fn version_key(version: &str) -> (u64, u64, u64) {
+    let mut parts = version
+        .trim()
+        .trim_start_matches('v')
+        .split('.')
+        .map(|part| {
+            part.split(['-', '+'])
+                .next()
+                .unwrap_or("")
+                .parse::<u64>()
+                .unwrap_or(0)
+        });
+    (
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+    )
+}
+
+/// Put the exact-name answer first, dropping the copy the relevance search may
+/// also have carried — a package appearing twice would read as two packages.
+fn pin_exact(entries: &mut Vec<CatalogEntry>, exact: CatalogEntry) {
+    entries.retain(|entry| entry.name != exact.name);
+    entries.insert(0, exact);
+}
+
 fn state_of() -> Result<PluginState> {
     let profile = hd_core::projects::active_profile().unwrap_or_else(hd_core::profiles::selected);
     let dir = hd_core::paths::profile_dir(&profile);
@@ -187,7 +296,18 @@ pub async fn plugin_search(
         active.endpoint.map(|value| value.to_string()),
     );
     let client = client_of()?;
-    let entries = hd_runtime::market::fetch_catalog(&client, &id_string, endpoint.as_deref(), &query).await?;
+    let mut entries = hd_runtime::market::fetch_catalog(&client, &id_string, endpoint.as_deref(), &query).await?;
+
+    // A query shaped like one exact package name gets a direct registry answer
+    // pinned to the top of it: the search endpoint ranks by popularity, and a
+    // fresh package loses to every established one even when the query is its
+    // full name. The lookup is a courtesy — its failure costs the search
+    // nothing, and a miss means the registry has no such package at all.
+    if id_string == pkg::sources::NPM_ID && pkg::is_package_name(query.trim()) {
+        if let Ok(Some(exact)) = hd_runtime::market::exact_entry(&client, query.trim()).await {
+            pin_exact(&mut entries, exact);
+        }
+    }
 
     let mut matched: Vec<CatalogEntry> =
         pkg::catalog::search(&entries, &query, category.as_deref())
@@ -822,14 +942,34 @@ impl Drop for MarketGuard<'_> {
 /// The patch that turns the user's switches into the composition: one entry
 /// per disabled plugin, `disabled: true`, applied at every launch. Written
 /// when a switch flips and read by the launch plan.
+///
+/// An empty switch list removes the file instead of writing it. A YAML document
+/// of only comments parses as null, and the loader answers a null overlay with
+/// "must be a top-level YAML array" — the file existing at all is the signal
+/// that there is something to disable, so with nothing disabled there is
+/// nothing to write.
 fn write_disabled_patch() -> Result<()> {
     let profile = hd_core::projects::active_profile().unwrap_or_else(hd_core::profiles::selected);
     let disabled = pkg::switches::switched_off(&profile);
+    let path = disabled_patch_path();
+
+    if disabled.is_empty() {
+        return match std::fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            // Never written, or already gone: the state the file's absence
+            // represents is the state we are in.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(Error::Plugin(format!(
+                "{} could not be removed: {error}",
+                path.display()
+            ))),
+        };
+    }
+
     let mut body = String::from("# Composed by HarnessLite from the plugin switches.\n");
     for name in disabled {
         body.push_str(&format!("- id: '{name}'\n  name: '{name}'\n  disabled: true\n"));
     }
-    let path = disabled_patch_path();
     hd_core::atomic::write(&path, body.as_bytes()).map_err(|cause| {
         Error::Plugin(format!("{} could not be written: {cause}", path.display()))
     })
@@ -843,4 +983,45 @@ pub fn disabled_patch() -> Option<PathBuf> {
 
 fn disabled_patch_path() -> PathBuf {
     hd_core::paths::app_data_dir().join("disabled.patch.yml")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{pin_exact, version_key};
+    use hd_core::plugins::catalog::CatalogEntry;
+    use hd_core::plugins::sources::{SourceId, TrustTier};
+
+    fn entry_named(name: &str) -> CatalogEntry {
+        CatalogEntry {
+            source: SourceId::Npm,
+            name: name.to_string(),
+            npm_name: Some(name.to_string()),
+            npm_spec: None,
+            summary_en: None,
+            summary_zh: None,
+            category: None,
+            verified: true,
+            trust: TrustTier::BuiltinNpm,
+            installs: None,
+            stars: None,
+            downloads: None,
+        }
+    }
+
+    #[test]
+    fn the_exact_answer_is_pinned_and_deduplicated() {
+        let mut entries = vec![entry_named("dsh-b"), entry_named("dsh-local-telemetry")];
+        pin_exact(&mut entries, entry_named("dsh-local-telemetry"));
+        assert_eq!(entries[0].name, "dsh-local-telemetry");
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn versions_order_by_semver_segment() {
+        assert!(version_key("1.10.0") > version_key("1.9.9"));
+        assert!(version_key("0.2.0") > version_key("0.1.9"));
+        assert_eq!(version_key("1.2.3"), version_key("v1.2.3"));
+        assert_eq!(version_key("1.2.3-beta.4"), version_key("1.2.3"));
+        assert_eq!(version_key("1.2"), (1, 2, 0));
+    }
 }

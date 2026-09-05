@@ -18,7 +18,8 @@
         "height": 820,
         "minWidth": 940,
         "minHeight": 600,
-        "center": true
+        "center": true,
+        "decorations": false
       }
     ],
     "macOSPrivateApi": true,

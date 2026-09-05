@@ -57,11 +57,11 @@ const SettingsPane = lazy(() =>
 /** The surfaces a sheet can hold. `null` is the conversation filling the window. */
 type SheetId = 'console' | 'terminal' | 'sessions' | 'plugins' | 'remote' | 'settings'
 
-const SHEETS: Array<{ id: SheetId; icon: LucideIcon; wide?: boolean }> = [
+const SHEETS: Array<{ id: SheetId; icon: LucideIcon }> = [
   { id: 'console', icon: LifeBuoy },
-  { id: 'terminal', icon: SquareTerminal, wide: true },
+  { id: 'terminal', icon: SquareTerminal },
   { id: 'sessions', icon: Users },
-  { id: 'plugins', icon: PlugZap, wide: true },
+  { id: 'plugins', icon: PlugZap },
   { id: 'remote', icon: TerminalSquare },
   { id: 'settings', icon: SettingsIcon },
 ]
@@ -249,7 +249,8 @@ export default function App() {
     <div className="flex h-full flex-col overflow-hidden">
       <TitleBar
         status={status}
-        onOpenProjects={() => setSheet('settings')}
+        onOpenSettings={() => setSheet('settings')}
+        onChooseWorkspace={() => void chooseWorkspace()}
         onOpenProfiles={manage}
         onOpenPalette={() => usePalette.getState().show()}
       />
@@ -279,7 +280,6 @@ export default function App() {
         <Sheet
           icon={sheetMeta.icon}
           title={t(`nav.${sheetMeta.id === 'console' ? 'console' : sheetMeta.id}`)}
-          wide={sheetMeta.wide}
           onClose={() => setSheet(null)}
         >
           <Suspense fallback={<LoadingSurface />}>
