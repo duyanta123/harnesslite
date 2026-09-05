@@ -6,6 +6,7 @@
 //! — domain logic lives in `hd-core`, process lifecycle in `hd-runtime`.
 
 mod commands;
+mod plugins;
 mod presets;
 mod profiles_cmd;
 mod runtime_env;
@@ -149,6 +150,24 @@ pub fn run() {
             profiles_cmd::profile_export,
             profiles_cmd::profile_declaration,
             profiles_cmd::profile_import,
+            plugins::plugin_state,
+            plugins::plugin_recovery_notice,
+            plugins::plugin_recovery_acknowledge,
+            plugins::plugin_recovery_retry,
+            plugins::plugin_search,
+            plugins::plugin_detail,
+            plugins::plugin_media,
+            plugins::plugin_preview,
+            plugins::plugin_sources,
+            plugins::plugin_source_health,
+            plugins::plugin_source_select,
+            plugins::plugin_source_add,
+            plugins::plugin_source_remove,
+            plugins::plugin_add,
+            plugins::plugin_remove,
+            plugins::plugin_switch,
+            plugins::plugin_archive,
+            plugins::plugin_import,
             presets::preset_roster,
             presets::preset_choose,
             startup::startup_state,

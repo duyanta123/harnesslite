@@ -30,6 +30,10 @@ sha2 = "0.10"
 # and a plain piped stdio gets none of them. ConPTY on Windows, forkpty
 # elsewhere, behind one API. This is wezterm's own pty layer.
 portable-pty = "0.9"
+# npm tarballs — plugin archives, on every platform — are gzipped tars, and
+# the same reader unpacks them; `tar` cannot stay target-gated the way the
+# Node unpacker's two formats are.
+tar = "0.4"
 # flate2 arrives through zip's `deflate-flate2` with its backend features left
 # off, and a backend is not optional — so this crate names one explicitly. The
 # pure-Rust `rust_backend` is the choice that stays identical on every platform.

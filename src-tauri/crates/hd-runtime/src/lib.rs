@@ -10,6 +10,7 @@
 
 pub mod composition;
 pub mod harness;
+pub mod market;
 pub mod node;
 pub mod terminal;
 

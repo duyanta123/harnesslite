@@ -7,11 +7,14 @@
 //! this module never spawns a process or touches the network.
 
 pub mod catalog;
+pub mod detail;
+pub mod preflight;
 pub mod manifest;
 pub mod sources;
 pub mod switches;
 
 pub use catalog::{is_exact_version, CatalogEntry};
+pub use detail::PackageDetail;
 pub use manifest::{add_dependency, bundles, dependencies, is_package_name, is_package_spec, list, read_manifest, remove_dependency, InstalledPlugin};
 pub use sources::{admit_custom, CustomSource, Source, SourceId, Store as SourceStore, TrustTier};
 pub use switches::Store as SwitchStore;

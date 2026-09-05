@@ -40,6 +40,10 @@ pub struct AppState {
     /// Set while a Node runtime is being downloaded; the download and the npm
     /// install it enables must never run at once.
     pub provisioning: AtomicBool,
+    /// Set while a market operation (search, preflight, install) is running.
+    pub market_busy: AtomicBool,
+    /// The one pending install confirmation, until it is used or expires.
+    pub intent: Mutex<Option<crate::plugins::Intent>>,
     /// The number of harness boots this window has seen, for diagnostics.
     pub boots: AtomicU32,
     pub pending_link: PendingLink,
@@ -52,6 +56,8 @@ impl AppState {
             terminals: Terminals::new().expect("terminal registry"),
             installing: AtomicBool::new(false),
             provisioning: AtomicBool::new(false),
+            market_busy: AtomicBool::new(false),
+            intent: Mutex::new(None),
             boots: AtomicU32::new(0),
             pending_link: PendingLink::default(),
         }

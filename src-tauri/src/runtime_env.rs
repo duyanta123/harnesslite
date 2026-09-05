@@ -149,11 +149,19 @@ pub fn launch_plan() -> Result<LaunchPlan> {    let environment = environment();
     let profile = hd_core::projects::active_profile()
         .unwrap_or_else(hd_core::profiles::selected);
 
+    // Two runtime-owned patch layers, in order: the integration seam, then the
+    // user's plugin switches. Neither is persisted into the profile's bundle
+    // stack; both are supplied per process and re-derived on every launch.
+    let mut patches: Vec<PathBuf> = integration_patch().into_iter().collect();
+    if let Some(disabled) = crate::plugins::disabled_patch() {
+        patches.push(disabled);
+    }
+
     Ok(LaunchPlan {
         node: node.path,
         entry: environment.harness_entry,
         profile,
-        patches: integration_patch().into_iter().collect(),
+        patches,
         workspace: environment.workspace,
         host: BIND_HOST.to_string(),
         // A port the user fixed in settings wins; otherwise an OS-assigned one
