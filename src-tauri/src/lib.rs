@@ -9,6 +9,7 @@ mod commands;
 mod plugins;
 mod presets;
 mod profiles_cmd;
+mod remote;
 mod runtime_env;
 mod sessions;
 mod state;
@@ -63,7 +64,10 @@ pub fn run() {
         .setup(|app| {
             let supervisor = Supervisor::new().expect("supervisor");
             commands::relay_supervisor_events(app.handle().clone(), Arc::clone(&supervisor));
-            app.manage(AppState::new(supervisor));
+            let remote = hd_runtime::remote::Remote::new();
+
+            app.manage(AppState::new(Arc::clone(&supervisor)));
+            remote::auto_close_when_harness_stops(app.handle().clone(), remote, supervisor);
 
             // One shelf of sessions, shared by every window: read-only over
             // `~/.dsh/sessions`, cached and decoded here.
@@ -177,6 +181,11 @@ pub fn run() {
             startup::startup_notification_test,
             startup::startup_log_level,
             startup::startup_harness_port,
+            remote::remote_status,
+            remote::remote_open,
+            remote::remote_close,
+            remote::remote_renew,
+            remote::remote_forget,
             commands::desktop_offer,
             commands::desktop_notify,
             commands::desktop_attention,

@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::{Arc, Mutex};
 
 use hd_runtime::harness::supervisor::Supervisor;
+use hd_runtime::remote::Remote;
 use hd_runtime::terminal::Terminals;
 
 /// The one desktop link waiting for a frame to hand itself to.
@@ -31,6 +32,8 @@ impl PendingLink {
 /// Application-wide state handed to every command.
 pub struct AppState {
     pub supervisor: Arc<Supervisor>,
+    /// The one remote session, guarded by the supervisor's lifecycle.
+    pub remote: Arc<Remote>,
     /// Every open shell, guarded independently of the supervisor: stopping the
     /// harness must never take the user's terminals down with it.
     pub terminals: Arc<Terminals>,
@@ -53,6 +56,7 @@ impl AppState {
     pub fn new(supervisor: Arc<Supervisor>) -> Self {
         Self {
             supervisor,
+            remote: Remote::new(),
             terminals: Terminals::new().expect("terminal registry"),
             installing: AtomicBool::new(false),
             provisioning: AtomicBool::new(false),

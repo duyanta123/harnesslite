@@ -12,6 +12,7 @@ pub mod composition;
 pub mod harness;
 pub mod market;
 pub mod node;
+pub mod remote;
 pub mod terminal;
 
 /// Workspace version of the HarnessLite shell this crate belongs to.

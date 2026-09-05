@@ -30,6 +30,9 @@ sha2 = "0.10"
 # and a plain piped stdio gets none of them. ConPTY on Windows, forkpty
 # elsewhere, behind one API. This is wezterm's own pty layer.
 portable-pty = "0.9"
+# QR encoding only; the matrix is rendered as SVG/canvas by the frontend, so
+# nothing here has to draw or write an image.
+qrcodegen = "1.8"
 # npm tarballs — plugin archives, on every platform — are gzipped tars, and
 # the same reader unpacks them; `tar` cannot stay target-gated the way the
 # Node unpacker's two formats are.
