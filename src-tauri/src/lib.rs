@@ -6,6 +6,7 @@
 //! — domain logic lives in `hd-core`, process lifecycle in `hd-runtime`.
 
 mod commands;
+mod diagnostics;
 mod plugins;
 mod presets;
 mod profiles_cmd;
@@ -186,6 +187,10 @@ pub fn run() {
             remote::remote_close,
             remote::remote_renew,
             remote::remote_forget,
+            diagnostics::report_build,
+            diagnostics::report_save,
+            diagnostics::report_archive,
+            diagnostics::report_frontend_crash,
             commands::desktop_offer,
             commands::desktop_notify,
             commands::desktop_attention,
