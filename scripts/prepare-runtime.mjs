@@ -49,8 +49,13 @@ if (actual !== expected[0]) {
 // --- unpack into the resource directory ------------------------------------
 rmSync(stagingDir, { recursive: true, force: true })
 mkdirSync(stagingDir, { recursive: true })
-// bsdtar autodetects the zip; -J/-z flags are not needed.
-const unpacked = spawnSync('tar', ['-xf', zipPath, '-C', stagingDir], { stdio: 'inherit' })
+// bsdtar autodetects the zip; -J/-z flags are not needed. Windows' own
+// bsdtar is named explicitly: a Git Bash / MSYS tar on PATH is GNU tar,
+// which reads no zip at all.
+const winTar = existsSync('C:/Windows/System32/tar.exe')
+  ? 'C:/Windows/System32/tar.exe'
+  : 'tar'
+const unpacked = spawnSync(winTar, ['-xf', zipPath, '-C', stagingDir], { stdio: 'inherit' })
 if (unpacked.status !== 0) throw new Error(`tar could not unpack ${artifact}.zip`)
 
 // Flatten node-<v>-win-x64/ → runtime/node/ so the resource path is stable
