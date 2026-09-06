@@ -17,11 +17,11 @@
 
 ## ⬇ 下载 / Download
 
-从 [GitHub Pages 下载页](https://duyanta123.github.io/harnesslite/) 或 [Releases](https://github.com/duyanta123/harnesslite/releases/latest) 获取：
+从 [GitHub Pages 下载页](https://duyanta123.github.io/harnesslite/) 或 [最新版 Release](https://github.com/duyanta123/harnesslite/releases/latest) 获取（Release 页提供两种包，链接永久指向最新版）：
 
 | 文件 | 说明 |
 |---|---|
-| `HarnessLite_0.1.3_x64-setup.exe` | NSIS 安装包（推荐） |
+| `HarnessLite_<版本>_x64-setup.exe` | NSIS 安装包（推荐） |
 | `harnesslite.exe` | 免安装绿色版 |
 
 - **系统要求**：Windows 10/11 x64。运行时由应用自动安装，发布版已内置 Node，无 Node 的机器开箱即用
