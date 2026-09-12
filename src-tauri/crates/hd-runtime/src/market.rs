@@ -347,6 +347,7 @@ fn plugin_command(
     operation: &str,
     spec: &str,
     proxy: Option<&str>,
+    shim: Option<&Path>,
 ) -> tokio::process::Command {
     let mut command = tokio::process::Command::new(node);
     command
@@ -363,11 +364,12 @@ fn plugin_command(
             contract::ENV_PROFILE_DIR,
             hd_core::paths::profile_dir(profile),
         )
-        // The harness CLI forwards the install to `pnpm`, which it finds on
-        // PATH. The selected runtime's directory goes in front, so a bare
-        // `pnpm` resolves inside the same Node family the shell chose instead
-        // of whatever a GUI-launched process inherited — or nothing at all.
-        .env("PATH", install::path_with_node(node))
+        // The harness CLI forwards the install to a bare `pnpm` it finds on
+        // PATH. The shim (the runtime's own pnpm) and the selected Node's
+        // directory go in front, so the resolution lands inside the runtime
+        // family the shell chose instead of whatever a GUI-launched process
+        // inherited — or nothing at all.
+        .env("PATH", plugin_path_with(shim, node))
         .envs(proxy_env(proxy))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -377,6 +379,61 @@ fn plugin_command(
         command.creation_flags(0x0800_0000);
     }
     command
+}
+
+/// `PATH` for a plugin operation: the shim in front, then the chosen Node's
+/// directory, then whatever the shell inherited.
+fn plugin_path_with(shim: Option<&Path>, node: &Path) -> std::ffi::OsString {
+    let existing = std::env::var_os("PATH").unwrap_or_default();
+    let mut entries: Vec<PathBuf> = Vec::new();
+    if let Some(shim) = shim {
+        entries.push(shim.to_path_buf());
+    }
+    if let Some(directory) = node.parent() {
+        entries.push(directory.to_path_buf());
+    }
+    entries.extend(std::env::split_paths(&existing));
+    std::env::join_paths(entries).unwrap_or(existing)
+}
+
+/// Materialize a `pnpm.cmd` shim that runs the runtime's own pnpm with the
+/// runtime's own Node.
+///
+/// `dsh plugin` spawns `pnpm` from PATH. Machines without a pnpm install —
+/// the no-Node machines the full installer exists for, above all — would fail
+/// every market install with "pnpm not found". The shell owns a tools
+/// directory, the qualified runtime ships pnpm, and a two-line shim bridges
+/// the two. `None` when the runtime is not installed: the operation will
+/// refuse on its own, with the same message it always has.
+#[cfg(windows)]
+fn ensure_pnpm_shim(node: &Path) -> Option<PathBuf> {
+    let pnpm_cjs = hd_core::paths::harness_dir()
+        .join("node_modules")
+        .join("pnpm")
+        .join("bin")
+        .join("pnpm.cjs");
+    if !pnpm_cjs.is_file() {
+        return None;
+    }
+    let dir = hd_core::paths::tools_dir().join("pnpm-shim");
+    let shim = dir.join("pnpm.cmd");
+    // The interpreter is absolute, so the shim keeps working if PATH changes
+    // under it; rewritten only when the content differs, so a market operation
+    // never touches the disk for nothing.
+    let body = format!("@echo off\r\n\"{}\" \"{}\" %*\r\n", node.display(), pnpm_cjs.display());
+    if std::fs::read_to_string(&shim).is_ok_and(|stored| stored == body) {
+        return Some(dir);
+    }
+    std::fs::create_dir_all(&dir).ok()?;
+    std::fs::write(&shim, body).ok()?;
+    Some(dir)
+}
+
+/// No shim off Windows: the shell is a Windows product, and a Unix pnpm shim
+/// would be dead code pretending otherwise.
+#[cfg(not(windows))]
+fn ensure_pnpm_shim(_node: &Path) -> Option<PathBuf> {
+    None
 }
 
 /// Run one `plugin` operation of the harness's own CLI, streaming its output.
@@ -396,7 +453,8 @@ pub async fn run_harness_plugin<F>(
 where
     F: FnMut(&'static str, String) + Send,
 {
-    let mut child = plugin_command(node, entry, profile, operation, spec, proxy)
+    let shim = ensure_pnpm_shim(node);
+    let mut child = plugin_command(node, entry, profile, operation, spec, proxy, shim.as_deref())
         .spawn()
         .map_err(|cause| {
             Error::Plugin(format!("the harness plugin command could not start: {cause}"))
@@ -579,6 +637,7 @@ mod tests {
             "add",
             "dsh-demo@1.0.0",
             None,
+            None,
         );
         let arguments = command
             .as_std()
@@ -615,6 +674,7 @@ mod tests {
             "remove",
             "dsh-demo",
             None,
+            None,
         );
         let path = command
             .as_std()
@@ -628,6 +688,30 @@ mod tests {
             path.starts_with("/runtimes/v22"),
             "the chosen runtime's directory goes in front: {path}"
         );
+    }
+
+    #[test]
+    fn the_pnpm_shim_leads_the_path_when_it_exists() {
+        let command = plugin_command(
+            Path::new("/runtimes/v22/node"),
+            &PathBuf::from("bin.js"),
+            "web",
+            "add",
+            "dsh-demo@1.0.0",
+            None,
+            Some(Path::new("/tools/pnpm-shim")),
+        );
+        let path = command
+            .as_std()
+            .get_envs()
+            .find(|(name, _)| *name == std::ffi::OsStr::new("PATH"))
+            .map(|(_, value)| value.expect("PATH is not removed"))
+            .expect("PATH is set")
+            .to_string_lossy()
+            .into_owned();
+        let shim = path.find("/tools/pnpm-shim").expect("the shim is on PATH");
+        let runtime = path.find("/runtimes/v22").expect("the runtime is on PATH");
+        assert!(shim < runtime, "the runtime's own pnpm wins: {path}");
     }
 
     #[test]
