@@ -32,7 +32,9 @@ const tsStrings = new Map(
   [...ts.matchAll(/export const (\w+) = '((?:[^'\\]|\\.)*)'/g)].map((m) => [m[1], m[2]]),
 )
 const tsNumbers = new Map(
-  [...ts.matchAll(/export const (\w+) = (\d+)\n/g)].map((m) => [m[1], Number(m[2])]),
+  // `\r?` keeps the pin working on a Windows checkout, where the file arrives
+  // with CRLF line endings and a bare `\n` would silently match nothing.
+  [...ts.matchAll(/export const (\w+) = (\d+)\r?\n/g)].map((m) => [m[1], Number(m[2])]),
 )
 const methodsMatchTs = ts.match(/export const BRIDGE_METHODS = \[([^\]]+)\] as const/)
 const tsMethods = methodsMatchTs
