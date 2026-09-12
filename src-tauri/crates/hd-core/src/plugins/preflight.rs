@@ -26,8 +26,20 @@ pub struct Resolution {
 /// runtime layer's error — so a document that will not parse is npm changing
 /// shape, and it fails loudly rather than passing an empty tree as fine.
 pub fn parse_resolution(stdout: &str, spec: &str) -> Result<Resolution> {
-    let value: Value = serde_json::from_str(stdout.trim())
-        .map_err(|cause| Error::Plugin(format!("npm's preflight reply made no sense: {cause}")))?;
+    // npm prints its reify lines ("add dsh-demo 1.2.0", one per package) on
+    // stdout before the `--json` report, so the reply is never bare JSON. The
+    // report is the one JSON value in the stream: parse the first value from
+    // the first opening brace and let anything trailing go.
+    let report = stdout
+        .find('{')
+        .map(|start| &stdout[start..])
+        .ok_or_else(|| Error::Plugin("npm's preflight reply carried no JSON report".into()))?;
+    let value: Value = serde_json::Deserializer::from_str(report)
+        .into_iter::<Value>()
+        .next()
+        .transpose()
+        .map_err(|cause| Error::Plugin(format!("npm's preflight reply made no sense: {cause}")))?
+        .ok_or_else(|| Error::Plugin("npm's preflight reply was empty".into()))?;
 
     let mut packages = Vec::new();
     let mut added = 0u64;
@@ -96,5 +108,35 @@ mod tests {
     #[test]
     fn an_unparseable_reply_is_an_error() {
         assert!(parse_resolution("E404 not found", "dsh-demo").is_err());
+        assert!(parse_resolution("", "dsh-demo").is_err());
+    }
+
+    /// npm prints one "add <name> <version>" line per package on stdout before
+    /// the `--json` report — bytes captured from a real npm 10 dry-run, which
+    /// the first parser rejected whole (`expected value at line 1 column 1`)
+    /// and so refused every plugin the market offered.
+    #[test]
+    fn the_reify_lines_before_the_report_are_skipped() {
+        let resolution = parse_resolution(
+            concat!(
+                "add is-buffer 1.1.6\n",
+                "add kind-of 3.2.2\n",
+                "add is-number 3.0.0\n",
+                "add is-odd 0.1.2\n",
+                "add is-even 1.0.0\n",
+                "{\n",
+                "  \"added\": [\n",
+                "    { \"name\": \"is-even\", \"version\": \"1.0.0\", \"location\": \"node_modules/is-even\" },\n",
+                "    { \"name\": \"is-odd\", \"version\": \"0.1.2\", \"location\": \"node_modules/is-odd\" }\n",
+                "  ],\n",
+                "  \"removed\": 0,\n",
+                "  \"changed\": 0\n",
+                "}\n",
+            ),
+            "is-even@1.0.0",
+        )
+        .expect("the report parses past the reify lines");
+        assert_eq!(resolution.added, 2);
+        assert_eq!(resolution.packages, vec!["is-even".to_string(), "is-odd".to_string()]);
     }
 }
