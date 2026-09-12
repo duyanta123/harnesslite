@@ -20,6 +20,11 @@ export interface CheckItem {
   value: string
   /** Full text when `value` had to be shortened to fit. */
   title?: string
+  /**
+   * Informational note after the value — an upstream newer release, say —
+   * that is not itself a state change and never carries an action.
+   */
+  suffix?: string
   state: CheckState
   action?: CheckAction
 }
@@ -130,6 +135,7 @@ function CheckRow({ item }: { item: CheckItem }) {
           data-hint={expandable ? undefined : item.value}
         >
           {item.value}
+          {item.suffix && <span className="ml-1.5 text-warn">{item.suffix}</span>}
         </span>
 
         {item.action && ActionIcon && (

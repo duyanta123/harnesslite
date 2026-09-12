@@ -130,6 +130,7 @@ pub fn run() {
             commands::harness_status,
             commands::harness_log,
             commands::harness_environment,
+            commands::runtime_upstream_check,
             commands::harness_start,
             commands::harness_stop,
             commands::harness_install,

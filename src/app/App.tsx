@@ -82,7 +82,10 @@ export default function App() {
   const stage = useOnboarding((state) => state.stage)
   const consider = useOnboarding((state) => state.consider)
   const paletteOpen = usePalette((state) => state.open)
+  // The bridge trusts the bare origin; the frame loads the announced URL,
+  // which upstream releases may gate behind a token query parameter.
   const origin = status.phase === 'ready' ? status.origin : null
+  const frameSrc = status.phase === 'ready' ? (status.url ?? status.origin) : null
 
   const [sheet, setSheet] = useState<SheetId | null>(null)
   const [managing, setManaging] = useState(false)
@@ -161,6 +164,12 @@ export default function App() {
 
   // The update schedule belongs to the window, not the strip that shows it.
   useEffect(() => watchForUpdates(), [])
+
+  // One launch-time look at whether the managed Harness upstream has moved
+  // past this build's qualified release; shown in the environment panel.
+  useEffect(() => {
+    void import('@/state/upstream').then((module) => void module.useUpstream.getState().check())
+  }, [])
 
   // A native drop adds the folder as a project — which switches to it when the
   // harness is idle. With a harness already serving, the drop is handed to the
@@ -259,8 +268,8 @@ export default function App() {
         <Onboarding />
       ) : (
         <div className="relative min-h-0 flex-1">
-          {origin ? (
-            <HarnessFrame origin={origin} hidden={false} />
+          {origin && frameSrc ? (
+            <HarnessFrame origin={origin} src={frameSrc} hidden={false} />
           ) : (
             <div className="h-full overflow-y-auto">
               <Dashboard />

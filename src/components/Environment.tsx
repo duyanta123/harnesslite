@@ -14,6 +14,7 @@ import { megabytes } from '@/lib/format'
 import { t } from '@/lib/i18n'
 import { formatVersion, type NodeProgress } from '@/lib/ipc'
 import { useHarness } from '@/state/harness'
+import { useUpstream } from '@/state/upstream'
 
 /** The two things that can be missing, each carrying the fix for itself. */
 export function EnvironmentChecks() {
@@ -22,6 +23,8 @@ export function EnvironmentChecks() {
   const install = useHarness((state) => state.install)
   const provisioningNode = useHarness((state) => state.provisioningNode)
   const provisionNode = useHarness((state) => state.provisionNode)
+  const upstream = useUpstream((state) => state.report)
+  const upstreamNewer = useUpstream((state) => state.newer)
 
   const node = environment?.node ?? null
   const minimum = environment ? formatVersion(environment.minimumNode) : ''
@@ -76,6 +79,10 @@ export function EnvironmentChecks() {
                 version: harnessVersion ?? expectedHarnessVersion,
               })
             : t('check.harness.missing'),
+      suffix:
+        harnessInstalled && upstreamNewer && upstream?.upstream
+          ? t('check.harness.upstream', { version: upstream.upstream })
+          : undefined,
       title: environment?.harnessEntry,
       state: environment === null ? 'neutral' : harnessReady ? 'ok' : 'missing',
       action:

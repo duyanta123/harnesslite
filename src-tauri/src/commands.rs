@@ -45,6 +45,40 @@ pub async fn harness_environment(_state: State<'_, AppState>) -> Result<runtime_
     Ok(runtime_env::environment())
 }
 
+/// What the runtime version picture looks like, upstream included.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeUpstream {
+    /// The version installed on this machine, when one is.
+    pub installed: Option<String>,
+    /// The release this shell was built and qualified against.
+    pub pinned: String,
+    /// The registry's `latest` at the moment of the check — None when the
+    /// registry could not be reached, which is a state, not an error.
+    pub upstream: Option<String>,
+}
+
+/// One launch-time look at whether upstream has moved past the locked release.
+///
+/// Never fails: an unreachable registry answers `upstream: None` and the shell
+/// keeps running the release it has. The frontend asks this once shortly after
+/// launch, the way it asks the signed update feed about the shell itself.
+#[tauri::command]
+pub async fn runtime_upstream_check() -> RuntimeUpstream {
+    let installed = runtime_env::runtime_version();
+    let pinned = contract::DSH_VERSION.to_string();
+    let client = hd_runtime::market::client(crate::proxy::effective().as_deref()).ok();
+    let upstream = match client {
+        Some(client) => hd_runtime::harness::upstream_latest(&client).await.ok(),
+        None => None,
+    };
+    RuntimeUpstream {
+        installed,
+        pinned,
+        upstream,
+    }
+}
+
 #[tauri::command]
 pub async fn harness_start(state: State<'_, AppState>) -> Result<String> {
     start_managed(&state).await
