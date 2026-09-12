@@ -87,6 +87,12 @@ pub fn market_sources_file() -> PathBuf {
     app_data_dir().join("market-sources.json")
 }
 
+/// The plugin market's proxy preference: whether market traffic — catalog
+/// search, the npm preflight, the plugin download itself — rides a proxy.
+pub fn market_proxy_file() -> PathBuf {
+    app_data_dir().join("market-proxy.json")
+}
+
 /// The exact Node executable selected by the user. The file is deliberately
 /// separate from the runtime manager stores: removing a Node simply makes the
 /// choice fall back to the newest supported runtime until it returns.

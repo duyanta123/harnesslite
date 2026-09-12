@@ -1,9 +1,10 @@
-import { useState, type FormEvent } from 'react'
-import { CheckCircle2, Database, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { CheckCircle2, Database, Globe, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react'
 
 import { Badge } from '@/components/Badge'
 import { Button } from '@/components/Button'
 import { Modal } from '@/components/Modal'
+import { Switch } from '@/components/Switch'
 import { t } from '@/lib/i18n'
 import { usePlugins } from '@/state/plugins'
 
@@ -20,9 +21,27 @@ export function CatalogSourcesDialog({ onClose }: CatalogSourcesDialogProps) {
   const addSource = usePlugins((state) => state.addSource)
   const removeSource = usePlugins((state) => state.removeSource)
   const checkSource = usePlugins((state) => state.checkSource)
+  const proxy = usePlugins((state) => state.proxy)
+  const proxySaving = usePlugins((state) => state.proxySaving)
+  const saveProxy = usePlugins((state) => state.saveProxy)
   const [adding, setAdding] = useState(false)
   const [label, setLabel] = useState('')
   const [endpoint, setEndpoint] = useState('')
+
+  // The form drafts the proxy locally and commits through the backend, which
+  // re-validates whatever arrives; the switch always shows the saved truth.
+  const [needsUrl, setNeedsUrl] = useState(false)
+  const [proxyUrl, setProxyUrl] = useState(proxy?.url ?? '')
+  const [proxySaved, setProxySaved] = useState(false)
+  useEffect(() => {
+    if (proxy) setProxyUrl(proxy.url)
+  }, [proxy])
+
+  // The switch shows the saved truth; drafts become the truth only through a
+  // commit that the backend has validated.
+  const commitProxy = async (enabled: boolean, url: string) => {
+    if (await saveProxy(enabled, url.trim())) setProxySaved(true)
+  }
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -116,6 +135,77 @@ export function CatalogSourcesDialog({ onClose }: CatalogSourcesDialogProps) {
             )
           })}
         </ul>
+
+        <section className="mt-4 rounded-control border border-line bg-canvas-deep/45 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="caption inline-flex items-center gap-1.5">
+              <Globe size={12} className="text-faint" aria-hidden="true" />
+              {t('plugins.proxy.title')}
+            </h3>
+            <Switch
+              on={proxy?.enabled ?? false}
+              busy={proxySaving}
+              label={t('plugins.proxy.toggle')}
+              onChange={(on) => {
+                setProxySaved(false)
+                if (on && proxyUrl.trim() === '') {
+                  // Nothing to point the proxy at yet; the inline hint says so
+                  // and the field waits, instead of a modal blaming the user.
+                  setNeedsUrl(true)
+                  return
+                }
+                setNeedsUrl(false)
+                void commitProxy(on, proxyUrl)
+              }}
+            />
+          </div>
+          <p className="mt-1 text-[10.5px] leading-relaxed text-faint">
+            {t('plugins.proxy.hint')}
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              value={proxyUrl}
+              aria-label={t('plugins.proxy.urlLabel')}
+              onChange={(event) => {
+                setProxyUrl(event.target.value)
+                setProxySaved(false)
+                setNeedsUrl(false)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void commitProxy(proxy?.enabled ?? false, proxyUrl)
+                }
+              }}
+              placeholder={t('plugins.proxy.placeholder')}
+              inputMode="url"
+              spellCheck={false}
+              disabled={proxySaving}
+              className="h-8 min-w-0 flex-1 rounded-control border border-line bg-surface px-2.5 font-mono text-[10.5px] text-text outline-none focus:border-brand disabled:opacity-50"
+            />
+            <Button
+              variant="secondary"
+              disabled={proxySaving || proxyUrl.trim() === (proxy?.url ?? '')}
+              onClick={() => void commitProxy(proxy?.enabled ?? false, proxyUrl)}
+            >
+              {proxySaving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+              {t('plugins.proxy.save')}
+            </Button>
+          </div>
+          {needsUrl && (
+            <p className="mt-1.5 text-[10.5px] text-warn">{t('plugins.proxy.needUrl')}</p>
+          )}
+          <div className="mt-1.5 flex items-center gap-2 text-[10.5px] text-faint">
+            {proxySaved && <span className="text-ok">{t('plugins.proxy.saved')}</span>}
+            {proxy?.effective && (
+              <span className="inline-flex items-center gap-1 text-ok">
+                <CheckCircle2 size={10} aria-hidden="true" />
+                {t('plugins.proxy.active')}
+                <span className="font-mono">{proxy.effective}</span>
+              </span>
+            )}
+          </div>
+        </section>
 
         <form
           onSubmit={(event) => void submit(event)}

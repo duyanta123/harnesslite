@@ -508,6 +508,7 @@ pub async fn plugin_preview(
         &npm,
         &spec,
         &hd_runtime::market::preflight_dir(),
+        crate::proxy::effective().as_deref(),
         |_, line| {
             state.supervisor.note(hd_runtime::harness::supervisor::Stream::Stdout, line);
         },
@@ -624,15 +625,14 @@ async fn operate(app: &AppHandle, state: &AppState, operation: Operation) -> Res
 
     let (node_exe, _npm) = hd_runtime::market::npm_pair(&node)?;
     let entry = hd_core::paths::harness_entry();
-    let patch = crate::runtime_env::integration_patch();
     let supervisor = Arc::clone(&state.supervisor);
     let result = hd_runtime::market::run_harness_plugin(
         &node_exe,
         &entry,
         &profile,
-        patch.as_deref(),
         operation_name,
         &subject,
+        crate::proxy::effective().as_deref(),
         move |stream, line| {
             supervisor.note(
                 if stream == "stderr" {
@@ -905,7 +905,9 @@ fn runtime_env_node() -> Option<PathBuf> {
 }
 
 fn client_of() -> Result<reqwest::Client> {
-    hd_runtime::node::http::client()
+    // The catalog, metadata and exact-name calls all ride the user's market
+    // proxy when one is set; `None` keeps the inherited-environment default.
+    hd_runtime::market::client(crate::proxy::effective().as_deref())
 }
 
 fn endpoint_of(id: &str) -> Result<Option<String>> {

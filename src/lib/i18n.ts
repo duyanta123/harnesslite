@@ -220,6 +220,16 @@ const en = {
   'plugins.sources.check': 'Check source contract',
   'plugins.sources.conformant': 'Conformant',
   'plugins.sources.installable': 'installable',
+  'plugins.proxy.title': 'Market proxy',
+  'plugins.proxy.toggle': 'Send market traffic through the proxy',
+  'plugins.proxy.hint':
+    'Search, the npm preflight and the plugin download all go through this proxy. Off keeps the shell’s inherited environment; the harness runtime install is not affected.',
+  'plugins.proxy.urlLabel': 'Proxy address',
+  'plugins.proxy.placeholder': 'http://127.0.0.1:7890',
+  'plugins.proxy.save': 'Save',
+  'plugins.proxy.saved': 'Saved',
+  'plugins.proxy.needUrl': 'Enter a proxy address before switching on.',
+  'plugins.proxy.active': 'In effect:',
   'plugins.hub.open': 'Open DSH Hub',
   'plugins.hub.title': 'DSH Hub community directory',
   'plugins.hub.detail':
@@ -888,6 +898,16 @@ const zh: Record<MessageKey, string> = {
   'plugins.sources.check': '检查来源协议',
   'plugins.sources.conformant': '协议通过',
   'plugins.sources.installable': '可安装',
+  'plugins.proxy.title': '市场代理',
+  'plugins.proxy.toggle': '市场流量走此代理',
+  'plugins.proxy.hint':
+    '开启后，搜索、npm 预检与插件下载都会经过该代理；关闭时沿用系统环境变量。Harness 运行时安装不受此设置影响。',
+  'plugins.proxy.urlLabel': '代理地址',
+  'plugins.proxy.placeholder': 'http://127.0.0.1:7890',
+  'plugins.proxy.save': '保存',
+  'plugins.proxy.saved': '已保存',
+  'plugins.proxy.needUrl': '请先填写代理地址再开启。',
+  'plugins.proxy.active': '生效中：',
   'plugins.hub.open': '打开 DSH Hub',
   'plugins.hub.title': 'DSH Hub 社区目录',
   'plugins.hub.detail':

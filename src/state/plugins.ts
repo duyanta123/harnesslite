@@ -20,6 +20,7 @@ import type {
   CatalogHealth,
   CatalogSource,
   InstalledPlugin,
+  MarketProxy,
   PluginDetail,
   PluginListing,
   PluginSort,
@@ -57,6 +58,10 @@ interface PluginStore {
   /** The package name a change is running against, or null when idle. */
   working: string | null
   error: string | null
+  /** The market's proxy preference, null until the first read lands. */
+  proxy: MarketProxy | null
+  /** A proxy change is being committed. */
+  proxySaving: boolean
   /** Newer registry versions found by the last check, keyed by package name. */
   updates: Record<string, PluginUpdate>
   /** An update check is running. */
@@ -84,6 +89,8 @@ interface PluginStore {
   toggle: (name: string, enabled: boolean) => Promise<void>
   /** Ask the registry which installed packages have a newer version. */
   checkUpdates: () => Promise<void>
+  /** Commit the market's proxy preference. */
+  saveProxy: (enabled: boolean, url: string) => Promise<boolean>
   /** Read a picked archive, so its package can be named before it is installed. */
   inspect: (path: string) => Promise<ArchivePackage | null>
   /** Install from an archive already read by `inspect`. */
@@ -179,13 +186,19 @@ export const usePlugins = create<PluginStore>((set, get) => ({
   error: null,
   updates: {},
   checkingUpdates: false,
+  proxy: null,
+  proxySaving: false,
 
   refresh: async () => {
     if (get().working || get().sourceWorking) return
     const mine = ++stateGeneration
     try {
-      const [profile, sources] = await Promise.all([ipc.pluginState(), ipc.pluginSources()])
-      if (mine === stateGeneration) set({ profile, sources, error: null })
+      const [profile, sources, proxy] = await Promise.all([
+        ipc.pluginState(),
+        ipc.pluginSources(),
+        ipc.pluginProxyState(),
+      ])
+      if (mine === stateGeneration) set({ profile, sources, proxy, error: null })
     } catch (cause) {
       if (mine === stateGeneration) failedQuietly(set, cause)
     }
@@ -534,6 +547,23 @@ export const usePlugins = create<PluginStore>((set, get) => ({
       set({ updates: {} })
     } finally {
       set({ checkingUpdates: false })
+    }
+  },
+
+  saveProxy: async (enabled, url) => {
+    if (get().proxySaving) return false
+    set({ proxySaving: true, error: null })
+    try {
+      const proxy = await ipc.pluginProxySet(enabled, url)
+      set({ proxy })
+      return true
+    } catch (cause) {
+      // A refused address is the point of the surface: the modal names what is
+      // wrong with the URL while the user is still looking at the field.
+      failed(set, cause)
+      return false
+    } finally {
+      set({ proxySaving: false })
     }
   },
 

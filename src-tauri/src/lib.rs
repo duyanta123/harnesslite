@@ -11,6 +11,7 @@ mod plugins;
 mod presets;
 mod profiles_cmd;
 mod projects_cmd;
+mod proxy;
 mod remote;
 mod runtime_env;
 mod sessions;
@@ -184,6 +185,8 @@ pub fn run() {
             plugins::plugin_switch,
             plugins::plugin_archive,
             plugins::plugin_import,
+            proxy::plugin_proxy_state,
+            proxy::plugin_proxy_set,
             presets::preset_roster,
             presets::preset_choose,
             startup::startup_state,

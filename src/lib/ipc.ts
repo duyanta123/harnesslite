@@ -404,6 +404,25 @@ export const pluginMedia = (
 
 export const pluginSources = (): Promise<CatalogSource[]> => invoke('plugin_sources')
 
+/**
+ * The plugin market's proxy preference.
+ *
+ * When `effective` is set, every market network path — catalog search, the npm
+ * preflight and the plugin download itself — rides that proxy; when null, the
+ * market inherits whatever the desktop process was started with.
+ */
+export interface MarketProxy {
+  enabled: boolean
+  url: string
+  /** The proxy actually in effect right now, null when off or invalid. */
+  effective: string | null
+}
+
+export const pluginProxyState = (): Promise<MarketProxy> => invoke('plugin_proxy_state')
+
+export const pluginProxySet = (enabled: boolean, url: string): Promise<MarketProxy> =>
+  invoke('plugin_proxy_set', { enabled, url })
+
 export const pluginSourceHealth = (id: string): Promise<CatalogHealth> =>
   invoke('plugin_source_health', { id })
 
