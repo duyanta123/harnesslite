@@ -932,7 +932,12 @@ fn npm_cli_works(node: &Path, npm_cli: &Path) -> bool {
 }
 
 /// `PATH` with the chosen Node's directory in front.
-fn path_with_node(node: &Path) -> OsString {
+///
+/// Shared with the market's plugin operations, which shell out to npm and to
+/// the harness CLI: a bare `pnpm` inside that CLI must resolve to the same
+/// runtime family the shell selected, never to whatever PATH a GUI process
+/// happened to inherit.
+pub fn path_with_node(node: &Path) -> OsString {
     let existing = std::env::var_os("PATH").unwrap_or_default();
     let Some(directory) = node.parent() else {
         return existing;

@@ -19,12 +19,15 @@ use reqwest::Client;
 
 use crate::harness::install;
 
-/// Catalog responses are small documents; a source that takes longer than this
-/// has stopped being one.
+/// How long a catalog or registry response may take overall.
+///
+/// npm metadata for one package is bounded a little tighter.
 const CATALOG_CEILING: Duration = Duration::from_secs(30);
-
-/// npm metadata for one package, bounded the same way.
 const DETAIL_CEILING: Duration = Duration::from_secs(20);
+
+/// A TCP connection that has not opened within this budget is not going to,
+/// proxy or not.
+const CONNECT_CEILING: Duration = Duration::from_secs(15);
 
 /// Preflight and install both walk real dependency trees; a wedged registry
 /// must fail the dialog rather than hold it open forever.
@@ -33,6 +36,47 @@ const OPERATION_TOTAL: Duration = Duration::from_secs(8 * 60);
 /// The user-agent every market request carries.
 fn user_agent() -> String {
     format!("harnesslite-market/{}", hd_core::VERSION)
+}
+
+/// The HTTPS client the market's registry and catalog calls go through.
+///
+/// `proxy` is the user's market proxy setting, `Some("http://host:port")` when
+/// they configured one. An explicit proxy overrides whatever proxy variables
+/// the desktop process inherited; `None` keeps the default behaviour, which is
+/// reqwest's own environment probing.
+pub fn client(proxy: Option<&str>) -> Result<Client> {
+    let mut builder = Client::builder()
+        .user_agent(user_agent())
+        .connect_timeout(CONNECT_CEILING);
+    if let Some(proxy) = proxy {
+        let proxy = reqwest::Proxy::all(proxy)
+            .map_err(|cause| Error::Plugin(format!("the proxy could not be used: {cause}")))?;
+        builder = builder.proxy(proxy);
+    }
+    builder.build().map_err(|cause| {
+        Error::Plugin(format!("no HTTPS client could be built for the market: {cause}"))
+    })
+}
+
+/// The environment variables that point npm and pnpm at the user's proxy.
+///
+/// Every subprocess the market spawns — the preflight's npm, the harness CLI's
+/// pnpm — inherits the desktop process's environment, where a proxy may be
+/// absent (GUI launch) or stale. Both spellings of each variable are set
+/// because different tools read different cases, and loopback is exempted so a
+/// proxy setting can never black-hole a call to the user's own machine.
+pub fn proxy_env(proxy: Option<&str>) -> Vec<(&'static str, String)> {
+    let Some(proxy) = proxy else {
+        return Vec::new();
+    };
+    vec![
+        ("HTTP_PROXY", proxy.to_string()),
+        ("HTTPS_PROXY", proxy.to_string()),
+        ("http_proxy", proxy.to_string()),
+        ("https_proxy", proxy.to_string()),
+        ("NO_PROXY", "localhost,127.0.0.1,::1".to_string()),
+        ("no_proxy", "localhost,127.0.0.1,::1".to_string()),
+    ]
 }
 
 /// A conformance report for one source, the way the sources dialog shows it.
@@ -202,6 +246,7 @@ pub async fn preflight<F>(
     npm: &Path,
     spec: &str,
     scratch: &Path,
+    proxy: Option<&str>,
     mut report: F,
 ) -> Result<pkg::preflight::Resolution>
 where
@@ -230,6 +275,10 @@ where
             spec,
         ])
         .current_dir(scratch)
+        // The resolution is the user's own network path: with a proxy set it
+        // must reach the registry the same way the real install will.
+        .envs(proxy_env(proxy))
+        .env("PATH", install::path_with_node(node))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -279,30 +328,32 @@ where
     pkg::preflight::parse_resolution(&stdout, spec)
 }
 
-/// Run one `plugin` operation of the harness's own CLI, streaming its output.
+/// The harness CLI command for one plugin operation.
 ///
-/// The harness installs, removes and re-composes the profile itself; the shell
-/// drives and watches. `report` receives every line, tagged by stream, which
-/// is how the market panel keeps its progress honest.
-pub async fn run_harness_plugin<F>(
+/// The exact form is the one the installed CLI parses, and it is strict: the
+/// `plugin` subcommand refuses every parent-level option ("plugin takes none
+/// of parent --profile, --patch, …"), and re-declares `--profile` as its own
+/// required option, so both `dsh --profile P plugin …` and
+/// `dsh --patch X plugin --profile P …` die in argument parsing before pnpm is
+/// ever started. Everything must ride *after* `plugin`.
+///
+/// The launcher's `--patch` overlays are therefore absent on purpose — they
+/// are boot-time composition, applied by the supervisor when the harness
+/// starts, and the CLI forbids them here anyway.
+fn plugin_command(
     node: &Path,
     entry: &Path,
     profile: &str,
-    patch: Option<&Path>,
     operation: &str,
     spec: &str,
-    mut report: F,
-) -> Result<()>
-where
-    F: FnMut(&'static str, String) + Send,
-{
+    proxy: Option<&str>,
+) -> tokio::process::Command {
     let mut command = tokio::process::Command::new(node);
-    command.arg(entry).arg("--profile").arg(profile);
-    if let Some(patch) = patch {
-        command.arg("--patch").arg(patch);
-    }
     command
+        .arg(entry)
         .arg("plugin")
+        .arg("--profile")
+        .arg(profile)
         .arg(operation)
         .arg(spec)
         .env("DSH_DESKTOP", "1")
@@ -312,6 +363,12 @@ where
             contract::ENV_PROFILE_DIR,
             hd_core::paths::profile_dir(profile),
         )
+        // The harness CLI forwards the install to `pnpm`, which it finds on
+        // PATH. The selected runtime's directory goes in front, so a bare
+        // `pnpm` resolves inside the same Node family the shell chose instead
+        // of whatever a GUI-launched process inherited — or nothing at all.
+        .env("PATH", install::path_with_node(node))
+        .envs(proxy_env(proxy))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -319,10 +376,31 @@ where
     {
         command.creation_flags(0x0800_0000);
     }
+    command
+}
 
-    let mut child = command.spawn().map_err(|cause| {
-        Error::Plugin(format!("the harness plugin command could not start: {cause}"))
-    })?;
+/// Run one `plugin` operation of the harness's own CLI, streaming its output.
+///
+/// The harness installs, removes and re-composes the profile itself; the shell
+/// drives and watches. `report` receives every line, tagged by stream, which
+/// is how the market panel keeps its progress honest.
+pub async fn run_harness_plugin<F>(
+    node: &Path,
+    entry: &Path,
+    profile: &str,
+    operation: &str,
+    spec: &str,
+    proxy: Option<&str>,
+    mut report: F,
+) -> Result<()>
+where
+    F: FnMut(&'static str, String) + Send,
+{
+    let mut child = plugin_command(node, entry, profile, operation, spec, proxy)
+        .spawn()
+        .map_err(|cause| {
+            Error::Plugin(format!("the harness plugin command could not start: {cause}"))
+        })?;
 
     // Stream both pipes line by line while the child runs; the readers are
     // tasks, but they own the pipes and die with them.
@@ -477,12 +555,103 @@ pub fn npm_pair(node: &Path) -> Result<(PathBuf, PathBuf)> {
 
 #[cfg(test)]
 mod tests {
-    use super::urlencode;
+    use super::{plugin_command, proxy_env, urlencode};
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn a_query_becomes_one_url_safe_word() {
         assert_eq!(urlencode("dsh"), "dsh");
         assert_eq!(urlencode("todo list"), "todo%20list");
         assert_eq!(urlencode("关键词"), "%E5%85%B3%E9%94%AE%E8%AF%8D");
+    }
+
+    /// The argument shape is load-bearing and strict: the `plugin` subcommand
+    /// re-declares `--profile` as its own required option and refuses every
+    /// parent-level option, so anything spelled before `plugin` — or any
+    /// launcher `--patch` — kills the operation in argument parsing. This pins
+    /// the one working shape the installed CLI actually parses.
+    #[test]
+    fn the_plugin_command_carries_the_profile_after_the_subcommand() {
+        let command = plugin_command(
+            Path::new("node"),
+            &PathBuf::from("bin.js"),
+            "web",
+            "add",
+            "dsh-demo@1.0.0",
+            None,
+        );
+        let arguments = command
+            .as_std()
+            .get_args()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        let plugin = arguments
+            .iter()
+            .position(|value| value == "plugin")
+            .expect("the subcommand is present");
+        assert_eq!(plugin, 1, "nothing but the entry precedes the subcommand");
+        let profile = arguments
+            .iter()
+            .position(|value| value == "--profile")
+            .expect("the profile is present");
+        assert!(plugin < profile, "--profile belongs to the subcommand");
+        let operator = arguments
+            .iter()
+            .position(|value| value == "add")
+            .expect("the operation is present");
+        assert!(profile < operator, "options precede the forwarded arguments");
+        assert!(
+            !arguments.contains(&"--patch".to_string()),
+            "launcher patches are boot-time and refused by the plugin subcommand"
+        );
+    }
+
+    #[test]
+    fn the_plugin_operation_runs_inside_the_selected_runtime() {
+        let command = plugin_command(
+            Path::new("/runtimes/v22/node"),
+            &PathBuf::from("bin.js"),
+            "web",
+            "remove",
+            "dsh-demo",
+            None,
+        );
+        let path = command
+            .as_std()
+            .get_envs()
+            .find(|(name, _)| *name == std::ffi::OsStr::new("PATH"))
+            .map(|(_, value)| value.expect("PATH is not removed"))
+            .expect("PATH is set")
+            .to_string_lossy()
+            .into_owned();
+        assert!(
+            path.starts_with("/runtimes/v22"),
+            "the chosen runtime's directory goes in front: {path}"
+        );
+    }
+
+    #[test]
+    fn a_proxy_reaches_the_subprocesses_under_both_spellings() {
+        let environment = proxy_env(Some("http://127.0.0.1:7890"));
+        for variable in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
+            assert!(
+                environment
+                    .iter()
+                    .any(|(name, value)| *name == variable && value == "http://127.0.0.1:7890"),
+                "{variable} is set"
+            );
+        }
+        // Loopback is exempt twice over: a proxy that black-holes the shell's
+        // own machine would be worse than no proxy at all.
+        for variable in ["NO_PROXY", "no_proxy"] {
+            assert!(environment
+                .iter()
+                .any(|(name, value)| *name == variable && value.contains("127.0.0.1")));
+        }
+    }
+
+    #[test]
+    fn no_proxy_setting_touches_nothing() {
+        assert!(proxy_env(None).is_empty());
     }
 }
