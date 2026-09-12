@@ -47,7 +47,17 @@ export interface Environment {
 export type Status =
   | { phase: 'stopped' }
   | { phase: 'starting' }
-  | { phase: 'ready'; origin: string; pid: number }
+  | {
+      phase: 'ready'
+      /** Bare origin — the bridge's trust anchor and the dashboard's display. */
+      origin: string
+      /**
+       * The URL the harness announced, which upstream releases gate behind a
+       * token query parameter; the frame loads this rather than the origin.
+       */
+      url: string
+      pid: number
+    }
   | { phase: 'restarting'; attempt: number; delayMs: number }
   | { phase: 'failed'; reason: string }
 
@@ -474,6 +484,23 @@ export interface PluginUpdate {
 /** Check every registry-installed plugin against the registry's newest. */
 export const pluginCheckUpdates = (): Promise<PluginUpdate[]> =>
   invoke('plugin_check_updates')
+
+/**
+ * One launch-time look at the managed Harness runtime's upstream.
+ *
+ * `upstream` is the registry's `latest` at the moment of the check, null when
+ * the registry could not be reached — a state, not an error. Upgrading past
+ * the pinned release is never automatic: each shell build qualifies exactly
+ * one upstream release.
+ */
+export interface RuntimeUpstream {
+  installed: string | null
+  pinned: string
+  upstream: string | null
+}
+
+export const runtimeUpstreamCheck = (): Promise<RuntimeUpstream> =>
+  invoke('runtime_upstream_check')
 
 /** A plugin archive on this machine, as its own manifest describes it. */
 export interface ArchivePackage {

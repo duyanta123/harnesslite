@@ -210,17 +210,18 @@ describe('install progress', () => {
 
 describe('status events', () => {
   it('replaces the status and leaves the tag out of it', () => {
-    apply({ kind: 'status', phase: 'ready', origin: 'http://127.0.0.1:57652', pid: 4242 })
+    apply({ kind: 'status', phase: 'ready', origin: 'http://127.0.0.1:57652', url: 'http://127.0.0.1:57652', pid: 4242 })
 
     expect(useHarness.getState().status).toEqual({
       phase: 'ready',
       origin: 'http://127.0.0.1:57652',
+      url: 'http://127.0.0.1:57652',
       pid: 4242,
     })
   })
 
   it('does not carry fields over from the status it replaced', () => {
-    apply({ kind: 'status', phase: 'ready', origin: 'http://127.0.0.1:57652', pid: 4242 })
+    apply({ kind: 'status', phase: 'ready', origin: 'http://127.0.0.1:57652', url: 'http://127.0.0.1:57652', pid: 4242 })
     apply({ kind: 'status', phase: 'stopped' })
 
     expect(useHarness.getState().status).toEqual({ phase: 'stopped' })

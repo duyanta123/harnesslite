@@ -93,6 +93,11 @@ const EMPTY_ROSTER: Record<string, unknown> = {
   profile_recovery_notice: null,
   recovery_state: null,
   update_state: null,
+  runtime_upstream_check: {
+    installed: '0.1.5-rc.2',
+    pinned: '0.1.5-rc.2',
+    upstream: null,
+  },
 }
 
 const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {

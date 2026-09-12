@@ -77,7 +77,14 @@ pub enum Stream {
 pub enum Status {
     Stopped,
     Starting,
-    Ready { origin: String, pid: u32 },
+    Ready {
+        /// Bare origin the bridge trusts and the dashboard displays.
+        origin: String,
+        /// The announced URL, which upstream may gate behind a token query
+        /// parameter; the WebView loads this rather than the origin.
+        url: String,
+        pid: u32,
+    },
     Restarting { attempt: u32, delay_ms: u64 },
     Failed { reason: String },
 }
@@ -206,6 +213,15 @@ fn harness(cause: impl std::fmt::Display) -> Error {
     Error::Harness(cause.to_string())
 }
 
+/// What the harness announced when it became ready: the bare origin the shell
+/// trusts for the bridge, and the URL its WebView loads — the two differ once
+/// upstream gates the app behind a token query parameter.
+#[derive(Clone, Debug)]
+pub struct Announcement {
+    pub origin: String,
+    pub url: String,
+}
+
 impl Supervisor {
     pub fn new() -> Result<Arc<Self>> {
         Ok(Arc::new(Self {
@@ -281,14 +297,15 @@ impl Supervisor {
 
         let started = Arc::clone(&self).launch_initial(&plan).await;
         match started {
-            Ok((child, origin)) => {
+            Ok((child, announcement)) => {
                 let pid = child.id().unwrap_or_default();
                 self.publish(Status::Ready {
-                    origin: origin.clone(),
+                    origin: announcement.origin.clone(),
+                    url: announcement.url.clone(),
                     pid,
                 });
                 tokio::spawn(async move { self.supervise(child, plan).await });
-                Ok(origin)
+                Ok(announcement.origin)
             }
             Err(failure) => {
                 self.active.store(false, Ordering::SeqCst);
@@ -324,7 +341,7 @@ impl Supervisor {
     }
 
     /// Retry only the transient profile-to-runtime module fallback failure.
-    async fn launch_initial(self: Arc<Self>, plan: &LaunchPlan) -> Result<(Child, String)> {
+    async fn launch_initial(self: Arc<Self>, plan: &LaunchPlan) -> Result<(Child, Announcement)> {
         let attempts = INITIAL_MODULE_RETRY_DELAYS_MS
             .iter()
             .copied()
@@ -354,7 +371,7 @@ impl Supervisor {
     }
 
     /// Run one launch attempt to readiness.
-    async fn launch_once(self: Arc<Self>, plan: &LaunchPlan) -> Result<(Child, String)> {
+    async fn launch_once(self: Arc<Self>, plan: &LaunchPlan) -> Result<(Child, Announcement)> {
         let mut command = plan.to_command();
         let mut child = self.guard.spawn(&mut command).map_err(harness)?;
 
@@ -368,7 +385,7 @@ impl Supervisor {
 
         let outcome = tokio::select! {
             announced = ready_rx => match announced {
-                Ok(Ready::At(origin)) => Ok(origin),
+                Ok(Ready::At { origin, url }) => Ok(Announcement { origin, url }),
                 Ok(Ready::Rejected(reason)) => Err(harness(format!("readiness: {reason}"))),
                 // The pump dropped the sender, which only happens at EOF.
                 Err(_) => Err(harness(
@@ -386,7 +403,7 @@ impl Supervisor {
         };
 
         match outcome {
-            Ok(origin) => Ok((child, origin)),
+            Ok(announcement) => Ok((child, announcement)),
             Err(failure) => {
                 let _ = child.kill().await;
                 let _ = child.wait().await;
@@ -525,9 +542,13 @@ impl Supervisor {
             }
 
             match Arc::clone(&self).launch_once(plan).await {
-                Ok((child, origin)) => {
+                Ok((child, announcement)) => {
                     let pid = child.id().unwrap_or_default();
-                    self.publish(Status::Ready { origin, pid });
+                    self.publish(Status::Ready {
+                        origin: announcement.origin,
+                        url: announcement.url,
+                        pid,
+                    });
                     return Some(child);
                 }
                 Err(failure) => self.record(Stream::Stderr, format!("restart failed: {failure}")),

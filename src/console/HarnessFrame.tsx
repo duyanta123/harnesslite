@@ -19,13 +19,19 @@ import { serveDesktop } from '@/lib/bridge'
 const PERMISSIONS = 'clipboard-read; clipboard-write'
 
 interface HarnessFrameProps {
-  /** Origin the harness is currently serving on. */
+  /** Bare origin the harness is serving on — the bridge's trust anchor. */
   origin: string
+  /**
+   * The URL the frame loads. Upstream releases gate the app behind a token
+   * that arrives as a query parameter on the readiness announcement, so the
+   * address to load and the origin to trust are two different strings.
+   */
+  src: string
   /** Keep the frame loaded but out of the way. */
   hidden: boolean
 }
 
-export function HarnessFrame({ origin, hidden }: HarnessFrameProps) {
+export function HarnessFrame({ origin, src, hidden }: HarnessFrameProps) {
   // The desktop is offered to this frame for exactly as long as the frame is
   // the thing serving on that origin — see `src/lib/bridge.ts`. Not tied to
   // `hidden`, because a session left running behind the control panel is still
@@ -44,7 +50,7 @@ export function HarnessFrame({ origin, hidden }: HarnessFrameProps) {
       // stepping into the control panel must not throw it away. `display: none`
       // leaves the document loaded and its state intact.
       className={hidden ? 'hidden' : 'block h-full w-full border-0 bg-canvas'}
-      src={origin}
+      src={src}
       title="DeepSeek Harness"
       allow={PERMISSIONS}
     />

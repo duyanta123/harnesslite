@@ -30,8 +30,21 @@ pub fn remote_status(state: State<'_, AppState>) -> Status {
 pub fn remote_open(app: AppHandle, state: State<'_, AppState>) -> Result<Status> {
     let port = harness_port(&state)?;
     let relay = relay_for(&app, &state.remote);
-    let info = state.remote.open(port, relay)?;
+    let info = state.remote.open(port, harness_token(&state).as_deref(), relay)?;
     Ok(Status::of(&info))
+}
+
+/// The token the running harness announced, when its release gates the app
+/// behind one. Taken from the announced URL rather than rebuilt here.
+fn harness_token(state: &AppState) -> Option<String> {
+    match state.supervisor.status() {
+        hd_runtime::harness::supervisor::Status::Ready { url, .. } => url::Url::parse(&url)
+            .ok()?
+            .query_pairs()
+            .find(|(name, _)| name == "token")
+            .map(|(_, value)| value.into_owned()),
+        _ => None,
+    }
 }
 
 #[tauri::command]

@@ -43,7 +43,7 @@ const answer = async (taken: boolean): Promise<void> => {
 }
 
 const serving = () =>
-  useHarness.setState({ status: { phase: 'ready', origin: 'http://127.0.0.1:8100', pid: 4242 } })
+  useHarness.setState({ status: { phase: 'ready', origin: 'http://127.0.0.1:8100', url: 'http://127.0.0.1:8100', pid: 4242 } })
 
 beforeEach(() => {
   vi.clearAllMocks()

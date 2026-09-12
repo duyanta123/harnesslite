@@ -90,6 +90,10 @@ struct Live {
 struct Inner {
     live: Mutex<Option<Live>>,
     devices: Mutex<HashMap<String, DeviceRecord>>,
+    /// The token the harness announced, when its release gates the web app
+    /// behind one. Handed to the paired browser at the pairing redirect, so
+    /// the harness's own session cookie takes over from there.
+    harness_token: Mutex<Option<String>>,
     active: AtomicU64,
     served: AtomicU64,
     refused: AtomicU64,
@@ -114,6 +118,7 @@ impl Remote {
             inner: Arc::new(Inner {
                 live: Mutex::new(None),
                 devices: Mutex::new(HashMap::new()),
+                harness_token: Mutex::new(None),
                 active: AtomicU64::new(0),
                 served: AtomicU64::new(0),
                 refused: AtomicU64::new(0),
@@ -122,7 +127,11 @@ impl Remote {
     }
 
     /// Open the door in front of a harness that is serving on loopback.
-    pub fn open(self: &Arc<Self>, harness_port: u16, emit: Emit) -> Result<Info> {
+    ///
+    /// `harness_url` is the URL the harness announced — it may carry a token
+    /// query parameter that the paired browser has to present once, at the
+    /// redirect, before the harness's own session cookie takes over.
+    pub fn open(self: &Arc<Self>, harness_port: u16, harness_url: Option<&str>, emit: Emit) -> Result<Info> {
         let mut live = self.inner.live.lock().expect("remote poisoned");
         if let Some(existing) = live.as_ref() {
             let info = self.info_of(existing);
@@ -150,6 +159,8 @@ impl Remote {
         let gateway = Arc::clone(self);
         let port = harness_port;
         let relay_emit = Arc::clone(&emit);
+        *self.inner.harness_token.lock().expect("remote poisoned") =
+            harness_url.and_then(|url| token_of(url));
         *live = Some(session);
         drop(live);
 
@@ -165,6 +176,7 @@ impl Remote {
     /// Close the door. Pairings are forgotten: opening again starts clean.
     pub fn close(&self, emit: Emit) -> Info {
         *self.inner.live.lock().expect("remote poisoned") = None;
+        *self.inner.harness_token.lock().expect("remote poisoned") = None;
         self.inner.devices.lock().expect("remote poisoned").clear();
         let info = self.info();
         emit(Event::Changed);
@@ -379,9 +391,20 @@ impl Remote {
                         .map(|record| record.credential.clone())
                 }
                 .unwrap_or_default();
+                // The harness may gate the app behind a token query. Sending
+                // the paired browser to it once lets the harness issue its own
+                // session cookie; after that the pipe is an ordinary relay.
+                let redirect = self
+                    .inner
+                    .harness_token
+                    .lock()
+                    .expect("remote poisoned")
+                    .clone()
+                    .map(|token| format!("/?token={token}"))
+                    .unwrap_or_else(|| "/".to_string());
                 let _ = client.write_all(
                     format!(
-                        "HTTP/1.1 302 Found\r\nLocation: /\r\nSet-Cookie: hlcred={credential}; Path=/; HttpOnly; SameSite=Lax\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        "HTTP/1.1 302 Found\r\nLocation: {redirect}\r\nSet-Cookie: hlcred={credential}; Path=/; HttpOnly; SameSite=Lax\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                     )
                     .as_bytes(),
                 );
@@ -457,8 +480,17 @@ impl Remote {
     }
 }
 
-fn new_code() -> String {
-    use sha2::{Digest, Sha256};
+/// The `token` query value of an announced harness URL, when it carries one.
+fn token_of(url: &str) -> Option<String> {
+    url::Url::parse(url)
+        .ok()?
+        .query_pairs()
+        .find(|(name, _)| name == "token")
+        .map(|(_, value)| value.into_owned())
+        .filter(|value| !value.is_empty())
+}
+
+fn new_code() -> String {    use sha2::{Digest, Sha256};
     let seed = format!(
         "{}\0{:?}\0remote",
         std::process::id(),
