@@ -28,12 +28,13 @@ pub const PACKAGE: &str = hd_core::contract::DSH_PACKAGE;
 
 /// One coherent upstream release, never an npm moving tag.
 ///
-/// Every official package in this release depends on the matching rc.2 family,
-/// including the public `dsh-code-runtime-worker-thread` package. Pinning the
-/// root keeps a newly installed machine from silently selecting an unrelated
-/// release graph.
+/// Every package in the embedded lock belongs to one upstream release family —
+/// the composition pins each official companion at the family's exact version,
+/// because the floating `^` ranges would otherwise mix releases inside one
+/// graph. Pinning the root keeps a newly installed machine from silently
+/// selecting an unrelated release graph.
 pub const VERSION: &str = hd_core::contract::DSH_VERSION;
-pub const SPEC: &str = "@deepseek-ai/dsh@0.1.1-rc.2";
+pub const SPEC: &str = "@deepseek-ai/dsh@0.1.5-rc.2";
 pub const PNPM_VERSION: &str = "11.8.0";
 pub const PNPM_SPEC: &str = "pnpm@11.8.0";
 const RUNTIME_SCHEMA: u8 = 2;
@@ -155,8 +156,8 @@ impl InstallPlan {
             .arg("ci")
             .arg("--prefix")
             .arg(&self.target)
-            // Upstream rc.8 declares React 18 and ReactDOM 19 through separate
-            // peer chains. The qualified lock records that exact working graph;
+            // Upstream declares React 18 and ReactDOM 19 through separate peer
+            // chains. The qualified lock records that exact working graph;
             // asking npm to solve those peers again defeats the lock and fails.
             .arg("--legacy-peer-deps")
             .arg("--no-audit")
@@ -537,8 +538,8 @@ fn qualify_runtime(target: &Path) -> Result<()> {
     )?;
     body = replace_once(
         body,
-        "\t\t\t\tcreateDirectory: (path, name) => ctx.workspaces.createDirectory(path, name),\n\t\t\t\tt: ctx.locale.bind(LOCALE_NS)",
-        "\t\t\t\tcreateDirectory: (path, name) => ctx.workspaces.createDirectory(path, name),\n\t\t\t\tpickNativeDirectory: typeof window.__DSH_DESKTOP_PICK_DIRECTORY__ === \"function\" ? () => window.__DSH_DESKTOP_PICK_DIRECTORY__() : void 0,\n\t\t\t\tvalidateDirectory: typeof window.__DSH_DESKTOP_VALIDATE_DIRECTORY__ === \"function\" ? (path) => window.__DSH_DESKTOP_VALIDATE_DIRECTORY__(path) : void 0,\n\t\t\t\tt: ctx.locale.bind(LOCALE_NS)",
+        "\t\t\t\tcreateDirectory: (path, name) => ctx.uiWorkspace.createDirectory(path, name),\n\t\t\t\tt: ctx.locale.bind(LOCALE_NS)",
+        "\t\t\t\tcreateDirectory: (path, name) => ctx.uiWorkspace.createDirectory(path, name),\n\t\t\t\tpickNativeDirectory: typeof window.__DSH_DESKTOP_PICK_DIRECTORY__ === \"function\" ? () => window.__DSH_DESKTOP_PICK_DIRECTORY__() : void 0,\n\t\t\t\tvalidateDirectory: typeof window.__DSH_DESKTOP_VALIDATE_DIRECTORY__ === \"function\" ? (path) => window.__DSH_DESKTOP_VALIDATE_DIRECTORY__(path) : void 0,\n\t\t\t\tt: ctx.locale.bind(LOCALE_NS)",
         "directory picker desktop injection",
     )?;
 
@@ -1203,6 +1204,13 @@ mod tests {
 
     #[test]
     fn the_locally_installed_locked_picker_accepts_the_qualification() {
+        // The check is only meaningful against an installed runtime of THIS
+        // build's qualified family — the qualification is written against the
+        // pinned release's compiled output, and an install of any other family
+        // (older, or newer upstream) qualifies nothing here.
+        if runtime_version(&hd_core::paths::harness_dir()).as_deref() != Some(VERSION) {
+            return;
+        }
         let source = hd_core::paths::harness_dir()
             .join("node_modules/@deepseek-ai/dsh-client-ui-directory-picker-browse/lib/client.js");
         if !source.is_file() {

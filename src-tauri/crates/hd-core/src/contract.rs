@@ -15,7 +15,7 @@
 
 /// The managed npm package, and the exact version this shell locks.
 pub const DSH_PACKAGE: &str = "@deepseek-ai/dsh";
-pub const DSH_VERSION: &str = "0.1.1-rc.2";
+pub const DSH_VERSION: &str = "0.1.5-rc.2";
 
 /// The npm private package injected with `--patch` at boot; it exposes the
 /// read-only Host service to the harness process.
@@ -103,7 +103,7 @@ mod tests {
     #[test]
     fn the_runtime_lock_is_explicit() {
         assert_eq!(DSH_PACKAGE, "@deepseek-ai/dsh");
-        assert_eq!(DSH_VERSION, "0.1.1-rc.2");
+        assert_eq!(DSH_VERSION, "0.1.5-rc.2");
     }
 
     #[test]

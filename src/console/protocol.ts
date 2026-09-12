@@ -8,7 +8,7 @@
  */
 
 export const DSH_PACKAGE = '@deepseek-ai/dsh'
-export const DSH_VERSION = '0.1.1-rc.2'
+export const DSH_VERSION = '0.1.5-rc.2'
 export const INTEGRATION_PACKAGE = '@duyanta123/harnesslite-integration'
 
 export const ENV_VERSION = 'HARNESSLITE_VERSION'
